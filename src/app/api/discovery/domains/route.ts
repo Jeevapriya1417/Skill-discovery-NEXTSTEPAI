@@ -36,6 +36,18 @@ export async function GET(req: NextRequest) {
       );
     }
 
+    // Check for existing recommendations
+    const existingRecommendation = await Recommendation.findOne({ userId }).sort({ createdAt: -1 });
+    if (existingRecommendation && existingRecommendation.suggestedDomains && existingRecommendation.suggestedDomains.length > 0) {
+      return NextResponse.json(
+        {
+          message: 'Domain suggestions retrieved from database',
+          suggestedDomains: existingRecommendation.suggestedDomains,
+        },
+        { status: 200 }
+      );
+    }
+
     const languages = user.languagesKnown || [];
     const strengths = assessment.strengths || [];
     const weaknesses = assessment.weaknesses || [];

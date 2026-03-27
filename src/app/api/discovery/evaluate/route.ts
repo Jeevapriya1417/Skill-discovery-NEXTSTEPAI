@@ -25,47 +25,63 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Calculate score
-    let correctCount = 0;
-    const wrongQuestions: any[] = [];
-
-    assessment.questions.forEach((q: any, index: number) => {
-      if (userAnswers[index] === q.correctAnswer) {
-        correctCount++;
-      } else {
-        wrongQuestions.push({
-          question: q.question,
-          userAnswer: userAnswers[index],
-          correctAnswer: q.correctAnswer,
-        });
+    // Separate MCQs for basic scoring, but let AI handle qualitative evaluation
+    let mcqCorrect = 0;
+    let totalMcq = 0;
+    
+    const assessmentDetails = assessment.questions.map((q: any, i: number) => {
+      const isMcq = q.type === 'mcq';
+      if (isMcq) {
+        totalMcq++;
+        if (userAnswers[i] === q.correctAnswer) mcqCorrect++;
       }
+      return {
+        question: q.question,
+        type: q.type,
+        userAnswer: userAnswers[i],
+        correctAnswer: q.correctAnswer,
+        isCorrect: isMcq ? userAnswers[i] === q.correctAnswer : 'AI to evaluate'
+      };
     });
 
-    const score = Math.round((correctCount / assessment.questions.length) * 100);
-
-    // Determine level
-    let evaluatedLevel = 'Beginner';
-    if (score >= 80) evaluatedLevel = 'Advanced';
-    else if (score >= 50) evaluatedLevel = 'Intermediate';
+    const score = totalMcq > 0 ? Math.round((mcqCorrect / totalMcq) * 100) : 50;
 
     // Get user for context
     const user = await User.findById(assessment.userId);
     const languages = user?.languagesKnown || [];
 
     // Get AI evaluation
-    const prompt = `A student who knows ${languages.join(', ')} scored ${score}% (${correctCount} out of ${assessment.questions.length}) on a proficiency test.
+    const prompt = `You are a technical mentor. Evaluate a student's performance on a proficiency test.
+Student knows: ${languages.join(', ')}
 
-Questions they got wrong:
-${wrongQuestions.map((q, i) => `${i + 1}. ${q.question}`).join('\n')}
+Test Results:
+${assessmentDetails.map((d: any, i: number) => `
+Question ${i + 1} (${d.type}): ${d.question}
+User's Answer: ${d.userAnswer}
+${d.type === 'mcq' ? `Correct Answer: ${d.correctAnswer}` : 'This is a coding problem, evaluate the logic and syntax.'}
+`).join('\n')}
 
-Based on this, provide:
-1. A list of their strengths (topics they understand well)
-2. A list of their weaknesses (topics they need to improve)
+Based on ALL answers (especially the coding problems), provide:
+1. A list of 3-4 strengths
+2. A list of 3-4 weaknesses/areas for improvement
+3. An overall proficiency level (Beginner, Intermediate, or Advanced)
 
 Return as valid JSON with this structure:
 {
-  "strengths": ["strength 1", "strength 2", ...],
-  "weaknesses": ["weakness 1", "weakness 2", ...]
+  "strengths": ["...", "..."],
+  "weaknesses": ["...", "..."],
+  "evaluatedLevel": "...",
+  "results": [
+    {
+      "question": "...",
+      "type": "mcq/coding",
+      "userAnswer": "...",
+      "correctAnswer": "...",
+      "sampleSolution": "...",
+      "isCorrect": true/false/"AI evaluated",
+      "feedback": "..."
+    }
+  ]
 }
 
 Only return the JSON, nothing else.`;
@@ -81,24 +97,27 @@ Only return the JSON, nothing else.`;
       evaluation = {
         strengths: ['Basic understanding of concepts'],
         weaknesses: ['Needs more practice'],
+        evaluatedLevel: 'Beginner',
       };
     }
 
     // Update assessment
     assessment.answers = userAnswers;
     assessment.scores = { total: score };
-    assessment.evaluatedLevel = evaluatedLevel;
+    assessment.evaluatedLevel = evaluation.evaluatedLevel || 'Beginner';
     assessment.strengths = evaluation.strengths || [];
     assessment.weaknesses = evaluation.weaknesses || [];
+    assessment.results = evaluation.results || [];
     await assessment.save();
 
     return NextResponse.json(
       {
         message: 'Evaluation completed',
         score,
-        evaluatedLevel,
-        strengths: evaluation.strengths || [],
-        weaknesses: evaluation.weaknesses || [],
+        evaluatedLevel: assessment.evaluatedLevel,
+        strengths: assessment.strengths,
+        weaknesses: assessment.weaknesses,
+        results: assessment.results,
       },
       { status: 200 }
     );

@@ -4,6 +4,7 @@ export interface IRoadmapStage {
   stage: number;
   topic: string;
   estimatedDuration: string;
+  learningLinks?: { title: string; url: string }[];
 }
 
 export interface IRoadmap extends Document {
@@ -21,6 +22,10 @@ const RoadmapStageSchema = new Schema<IRoadmapStage>({
   stage: { type: Number, required: true },
   topic: { type: String, required: true },
   estimatedDuration: { type: String, required: true },
+  learningLinks: [{
+    title: { type: String },
+    url: { type: String }
+  }]
 });
 
 const RoadmapSchema = new Schema<IRoadmap>(

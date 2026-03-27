@@ -27,19 +27,45 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    if (!user.selectedDomain) {
+    const domainParam = searchParams.get('domain');
+
+    if (!user.selectedDomain && !domainParam) {
       return NextResponse.json(
-        { error: 'No domain selected. Please select a domain first.' },
+        { error: 'No domain provided.' },
         { status: 400 }
       );
     }
 
-    // Get latest assessment
     const assessment = await Assessment.findOne({ userId }).sort({ createdAt: -1 });
     
     const languages = user.languagesKnown || [];
     const strengths = assessment?.strengths || [];
-    const domain = user.selectedDomain;
+    const domain = domainParam || user.selectedDomain;
+
+    if (!domain) {
+      return NextResponse.json(
+        { error: 'No domain provided.' },
+        { status: 400 }
+      );
+    }
+
+    // Check for existing roadmap for this user and domain
+    const existingRoadmap = await Roadmap.findOne({ userId, domain }).sort({ createdAt: -1 });
+    if (existingRoadmap) {
+      return NextResponse.json(
+        {
+          message: 'Roadmap retrieved from database',
+          roadmap: {
+            _id: existingRoadmap._id,
+            domain: existingRoadmap.domain,
+            alreadyCovered: existingRoadmap.alreadyCovered,
+            toLearn: existingRoadmap.toLearn,
+            totalEstimatedTime: existingRoadmap.totalEstimatedTime,
+          },
+        },
+        { status: 200 }
+      );
+    }
 
     const prompt = `Create a personalized learning roadmap for a student who wants to become a ${domain}.
 
@@ -49,16 +75,21 @@ Student profile:
 
 Create a roadmap with:
 1. Topics already covered (what they already know)
-2. Topics to learn (in order, with estimated duration for each)
+2. Topics to learn (in order, with estimated duration for each, and 2-3 specific learningLinks to high-quality free resources like YouTube, freeCodeCamp, documentation, etc). The URL should be a real applicable link.
 3. Total estimated time to become job-ready
 
 Return as valid JSON with this structure:
 {
-  "alreadyCovered": ["topic 1", "topic 2", ...],
+  "alreadyCovered": ["topic 1", "topic 2"],
   "toLearn": [
-    { "stage": 1, "topic": "topic name", "estimatedDuration": "X weeks" },
-    { "stage": 2, "topic": "topic name", "estimatedDuration": "X weeks" },
-    ...
+    { 
+      "stage": 1, 
+      "topic": "topic name", 
+      "estimatedDuration": "X weeks",
+      "learningLinks": [
+        { "title": "Resource Title", "url": "https://..." }
+      ]
+    }
   ],
   "totalEstimatedTime": "X months"
 }
@@ -87,7 +118,8 @@ Include 6-8 topics to learn. Only return the JSON, nothing else.`;
       };
     }
 
-    // Save roadmap
+    // Only save the roadmap if domainParam matches user.selectedDomain or user already has a domain
+    // If we're just previewing, we can avoid saving, or we can save it anyway for history. Let's just create it anyway.
     const roadmap = await Roadmap.create({
       userId,
       type: 'discovery',
@@ -103,9 +135,9 @@ Include 6-8 topics to learn. Only return the JSON, nothing else.`;
         roadmap: {
           _id: roadmap._id,
           domain,
-          alreadyCovered: roadmapData.alreadyCovered || [],
-          toLearn: roadmapData.toLearn || [],
-          totalEstimatedTime: roadmapData.totalEstimatedTime || '3 months',
+          alreadyCovered: roadmap.alreadyCovered,
+          toLearn: roadmap.toLearn,
+          totalEstimatedTime: roadmap.totalEstimatedTime,
         },
       },
       { status: 200 }

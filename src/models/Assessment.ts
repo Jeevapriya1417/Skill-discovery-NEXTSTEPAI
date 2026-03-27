@@ -2,15 +2,27 @@ import mongoose, { Schema, Document } from 'mongoose';
 
 export interface IQuestion {
   question: string;
-  options: string[];
-  correctAnswer: string;
+  type?: 'mcq' | 'coding';
+  options?: string[];
+  correctAnswer?: string;
   tag?: string;
+}
+
+export interface IAssessmentResult {
+  question: string;
+  type: 'mcq' | 'coding';
+  userAnswer: string;
+  correctAnswer?: string;
+  sampleSolution?: string;
+  isCorrect?: boolean | string;
+  feedback: string;
 }
 
 export interface IAssessment extends Document {
   userId: mongoose.Types.ObjectId;
   questions: IQuestion[];
   answers: string[];
+  results: IAssessmentResult[];
   scores: {
     total: number;
     currentRoleScore?: number;
@@ -25,8 +37,9 @@ export interface IAssessment extends Document {
 
 const QuestionSchema = new Schema<IQuestion>({
   question: { type: String, required: true },
-  options: { type: [String], required: true },
-  correctAnswer: { type: String, required: true },
+  type: { type: String, enum: ['mcq', 'coding'], default: 'mcq' },
+  options: { type: [String], required: false },
+  correctAnswer: { type: String, required: false },
   tag: { type: String },
 });
 
@@ -62,6 +75,15 @@ const AssessmentSchema = new Schema<IAssessment>(
       type: [String],
       default: [],
     },
+    results: [{
+      question: String,
+      type: { type: String, enum: ['mcq', 'coding'] },
+      userAnswer: String,
+      correctAnswer: String,
+      sampleSolution: String,
+      isCorrect: Schema.Types.Mixed,
+      feedback: String,
+    }],
   },
   {
     timestamps: true,

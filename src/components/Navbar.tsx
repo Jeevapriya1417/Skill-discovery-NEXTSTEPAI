@@ -113,7 +113,7 @@ export default function Navbar() {
                 <DropdownMenuSeparator className="bg-white/10" />
                 <DropdownMenuItem 
                   className="text-slate-300 focus:bg-white/5 focus:text-white cursor-pointer"
-                  onClick={() => router.push('/dashboard')}
+                  onClick={() => router.push('/profile')}
                 >
                   <User className="mr-2 h-4 w-4" />
                   Profile
@@ -163,6 +163,14 @@ export default function Navbar() {
                   </Link>
                 );
               })}
+              <Link
+                href="/profile"
+                className={`flex items-center space-x-2 px-4 py-3 rounded-lg transition-all duration-300 text-slate-400 hover:text-white hover:bg-white/5`}
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                <User className="w-5 h-5" />
+                <span className="font-medium">Profile</span>
+              </Link>
             </div>
           </div>
         )}

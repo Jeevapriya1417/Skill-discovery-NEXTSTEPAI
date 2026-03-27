@@ -12,21 +12,29 @@ import {
   AlertTriangle,
   Zap,
   Clock,
-  Briefcase
+  Briefcase,
+  Search,
+  Check,
+  X,
+  Info,
+  BookOpen
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import { Label } from '@/components/ui/label';
 import Navbar from '@/components/Navbar';
 
 interface Question {
   question: string;
-  options: string[];
-  tag: string;
+  type?: 'mcq' | 'coding';
+  options?: string[];
+  tag?: string;
 }
 
 interface SkillGap {
@@ -44,7 +52,12 @@ export default function GapAnalysisPage() {
   const [gapAnalysis, setGapAnalysis] = useState<any>(null);
   const [roadmap, setRoadmap] = useState<any>(null);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [isEditingRoles, setIsEditingRoles] = useState(false);
+  const [roleForm, setRoleForm] = useState({
+    currentRole: '',
+    targetRole: '',
+  });
   const [user, setUser] = useState<any>(null);
 
   useEffect(() => {
@@ -54,6 +67,11 @@ export default function GapAnalysisPage() {
       return;
     }
     setUser(JSON.parse(userData));
+    const parsedUser = JSON.parse(userData);
+    setRoleForm({
+      currentRole: parsedUser.currentRole || '',
+      targetRole: parsedUser.targetRole || '',
+    });
   }, [router]);
 
   const startTest = async () => {
@@ -64,7 +82,7 @@ export default function GapAnalysisPage() {
       const response = await fetch('/api/gap/generate-test', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: user._id }),
+        body: JSON.stringify({ userId: user._id || user.id }),
       });
 
       const data = await response.json();
@@ -130,7 +148,7 @@ export default function GapAnalysisPage() {
     setError('');
 
     try {
-      const response = await fetch(`/api/gap/roadmap?userId=${user._id}`);
+      const response = await fetch(`/api/gap/roadmap?userId=${user._id || user.id}`);
       
       const data = await response.json();
       
@@ -142,6 +160,55 @@ export default function GapAnalysisPage() {
       setStep('roadmap');
     } catch (err: any) {
       setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleUpdateRoles = async (e: React.FormEvent) => {
+    e.preventDefault();
+    console.log('handleUpdateRoles called');
+    if (!user) {
+      console.error('No user found in state');
+      setError('User not found. Please log in again.');
+      return;
+    }
+    
+    setLoading(true);
+    setError(null);
+    try {
+      const payload = {
+        userId: user._id || user.id,
+        currentRole: roleForm.currentRole,
+        targetRole: roleForm.targetRole,
+      };
+      console.log('Sending update payload:', payload);
+
+      const response = await fetch('/api/user/update-roles', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await response.json();
+      console.log('API response:', data);
+
+      if (!response.ok) throw new Error(data.error || 'Failed to update roles');
+
+      // Update local storage and state
+      const updatedUser = { 
+        ...user, 
+        currentRole: roleForm.currentRole, 
+        targetRole: roleForm.targetRole 
+      };
+      localStorage.setItem('user', JSON.stringify(updatedUser));
+      setUser(updatedUser);
+      setIsEditingRoles(false);
+      alert('Roles updated successfully!');
+    } catch (err: any) {
+      console.error('Update roles error:', err);
+      setError(err.message);
+      alert(`Error saving roles: ${err.message}`);
     } finally {
       setLoading(false);
     }
@@ -179,8 +246,63 @@ export default function GapAnalysisPage() {
                 <p className="text-white font-medium">{user.targetRole || 'Not set'}</p>
               </div>
             </div>
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              className="mt-4 text-indigo-400 hover:text-indigo-300 w-full"
+              onClick={() => setIsEditingRoles(true)}
+            >
+              Edit Roles
+            </Button>
           </CardContent>
         </Card>
+      )}
+
+      {isEditingRoles && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 text-left">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="glass-card max-w-md w-full p-8 rounded-2xl border border-slate-700"
+          >
+            <h2 className="text-2xl font-bold text-white mb-6">Set Your Roles</h2>
+            <form onSubmit={handleUpdateRoles} className="space-y-4">
+              <div className="space-y-2">
+                <Label className="text-slate-300">Current Role</Label>
+                <Input 
+                  value={roleForm.currentRole}
+                  onChange={(e) => setRoleForm({ ...roleForm, currentRole: e.target.value })}
+                  placeholder="e.g. Frontend Developer"
+                  className="bg-slate-800/50 border-slate-700 text-white"
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-slate-300">Target Role</Label>
+                <Input 
+                  value={roleForm.targetRole}
+                  onChange={(e) => setRoleForm({ ...roleForm, targetRole: e.target.value })}
+                  placeholder="e.g. Full Stack Architect"
+                  className="bg-slate-800/50 border-slate-700 text-white"
+                  required
+                />
+              </div>
+              <div className="flex gap-4 mt-8">
+                <Button 
+                  type="button" 
+                  variant="outline" 
+                  className="flex-1 bg-slate-800 border-slate-700 text-white hover:bg-slate-700"
+                  onClick={() => setIsEditingRoles(false)}
+                >
+                  Cancel
+                </Button>
+                <Button type="submit" className="flex-1 btn-gradient" disabled={loading}>
+                  {loading ? 'Saving...' : 'Save Roles'}
+                </Button>
+              </div>
+            </form>
+          </motion.div>
+        </div>
       )}
 
       <div className="grid md:grid-cols-3 gap-4 mb-8">
@@ -245,43 +367,54 @@ export default function GapAnalysisPage() {
       <Card className="glass-card">
         <CardContent className="p-8">
           <div className="flex items-center gap-2 mb-4">
-            <Badge variant={questions[currentQuestion]?.tag === 'current' ? 'secondary' : 'default'}>
-              {questions[currentQuestion]?.tag === 'current' ? 'Current Role' : 'Target Role'}
-            </Badge>
+            <Badge variant="secondary">Current Role ({user?.currentRole})</Badge>
           </div>
 
           <h2 className="text-xl font-semibold text-white mb-6">
             {questions[currentQuestion]?.question}
           </h2>
 
-          <RadioGroup
-            value={answers[currentQuestion]}
-            onValueChange={handleAnswer}
-            className="space-y-3"
-          >
-            {questions[currentQuestion]?.options.map((option, index) => (
-              <div
-                key={index}
-                className={`flex items-center space-x-3 p-4 rounded-lg border transition-all cursor-pointer ${
-                  answers[currentQuestion] === String.fromCharCode(65 + index)
-                    ? 'border-purple-500 bg-purple-500/10'
-                    : 'border-slate-700 hover:border-slate-600'
-                }`}
-                onClick={() => handleAnswer(String.fromCharCode(65 + index))}
-              >
-                <RadioGroupItem
-                  value={String.fromCharCode(65 + index)}
-                  id={`option-${index}`}
-                />
-                <Label
-                  htmlFor={`option-${index}`}
-                  className="flex-1 cursor-pointer text-slate-300"
+          {questions[currentQuestion]?.type === 'coding' ? (
+            <div className="space-y-4">
+              <p className="text-slate-400 text-sm">Write your solution below:</p>
+              <Textarea
+                placeholder="Write your code here..."
+                className="min-h-[200px] font-mono bg-slate-900 border-slate-700 text-slate-100 placeholder:text-slate-600 focus:ring-purple-500"
+                value={answers[currentQuestion]}
+                onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => handleAnswer(e.target.value)}
+              />
+            </div>
+          ) : (
+            <RadioGroup
+              value={answers[currentQuestion]}
+              onValueChange={handleAnswer}
+              className="space-y-3"
+            >
+              {questions[currentQuestion]?.options?.map((option, index) => (
+                <div
+                  key={index}
+                  className={`flex items-center space-x-3 p-4 rounded-lg border transition-all cursor-pointer ${
+                    answers[currentQuestion] === String.fromCharCode(65 + index)
+                      ? 'border-purple-500 bg-purple-500/10'
+                      : 'border-slate-700 hover:border-slate-600'
+                  }`}
+                  onClick={() => handleAnswer(String.fromCharCode(65 + index))}
                 >
-                  {option}
-                </Label>
-              </div>
-            ))}
-          </RadioGroup>
+                  <RadioGroupItem
+                    value={String.fromCharCode(65 + index)}
+                    id={`option-${index}`}
+                    className="border-slate-500 text-purple-500"
+                  />
+                  <Label
+                    htmlFor={`option-${index}`}
+                    className="flex-grow text-slate-300 cursor-pointer"
+                  >
+                    {option}
+                  </Label>
+                </div>
+              ))}
+            </RadioGroup>
+          )}
 
           <Button
             className="w-full mt-6 bg-gradient-to-r from-purple-500 to-pink-500"
@@ -331,11 +464,7 @@ export default function GapAnalysisPage() {
         <div className="flex justify-center gap-8 mt-4">
           <div className="text-center">
             <p className="text-2xl font-bold text-white">{gapAnalysis?.currentRoleScore}%</p>
-            <p className="text-slate-400 text-sm">Current Role</p>
-          </div>
-          <div className="text-center">
-            <p className="text-2xl font-bold text-white">{gapAnalysis?.targetRoleScore}%</p>
-            <p className="text-slate-400 text-sm">Target Role</p>
+            <p className="text-slate-400 text-sm">Current Role Score ({user?.currentRole})</p>
           </div>
         </div>
       </div>
@@ -380,6 +509,57 @@ export default function GapAnalysisPage() {
           </CardContent>
         </Card>
       </div>
+
+      <Card className="glass-card mb-8">
+        <CardHeader>
+          <CardTitle className="text-white flex items-center">
+            <BookOpen className="w-5 h-5 mr-2 text-purple-400" />
+            Review Your Answers & Mistakes
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          {gapAnalysis?.results?.map((result: any, i: number) => (
+            <div key={i} className="p-4 rounded-lg bg-slate-900/50 border border-slate-800">
+              <div className="flex items-start justify-between mb-3">
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-xs text-slate-500 uppercase tracking-wider">Question {i + 1} ({result.type})</span>
+                  </div>
+                  <h4 className="text-white font-medium">{result.question}</h4>
+                </div>
+                {result.type === 'mcq' && (
+                  <div className={`p-1 rounded-full ${result.isCorrect ? 'bg-green-500/20 text-green-500' : 'bg-red-500/20 text-red-500'}`}>
+                    {result.isCorrect ? <Check className="w-4 h-4" /> : <X className="w-4 h-4" />}
+                  </div>
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4 text-sm">
+                <div className="space-y-1">
+                  <p className="text-slate-500">Your Answer:</p>
+                  <div className={`p-3 rounded bg-slate-800 ${result.type === 'coding' ? 'font-mono text-xs whitespace-pre-wrap' : ''} ${result.type === 'mcq' && !result.isCorrect ? 'text-red-400' : 'text-slate-200'}`}>
+                    {result.userAnswer || '(No answer provided)'}
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <p className="text-slate-500">{result.type === 'mcq' ? 'Correct Answer:' : 'Sample Solution/Guidance:'}</p>
+                  <div className={`p-3 rounded bg-slate-800/80 border border-slate-700/50 ${result.type === 'coding' ? 'font-mono text-xs whitespace-pre-wrap' : 'text-green-400'}`}>
+                    {result.type === 'mcq' ? result.correctAnswer : result.sampleSolution}
+                  </div>
+                </div>
+              </div>
+
+              {result.feedback && (
+                <div className="mt-4 p-3 rounded bg-purple-500/10 border border-purple-500/20 flex items-start">
+                  <Info className="w-4 h-4 text-purple-400 mr-2 mt-0.5 flex-shrink-0" />
+                  <p className="text-sm text-slate-300 italic">{result.feedback}</p>
+                </div>
+              )}
+            </div>
+          ))}
+        </CardContent>
+      </Card>
 
       <div className="text-center">
         <Button

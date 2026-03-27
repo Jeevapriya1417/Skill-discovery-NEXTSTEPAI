@@ -43,9 +43,9 @@ export async function transcribeAudio(audioUrl: string): Promise<TranscriptionRe
       })) || [],
       confidence: transcript.confidence || 0,
     };
-  } catch (error) {
+  } catch (error: any) {
     console.error('AssemblyAI transcription error:', error);
-    throw new Error('Failed to transcribe audio');
+    throw new Error(error.message || 'Failed to transcribe audio');
   }
 }
 

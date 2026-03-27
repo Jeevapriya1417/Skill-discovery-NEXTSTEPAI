@@ -155,6 +155,7 @@ export default function RegisterPage() {
                   onChange={handleChange}
                   className="pl-10 bg-slate-800/50 border-slate-700 text-white placeholder:text-slate-500"
                   required
+                  autoComplete="name"
                 />
               </div>
             </div>
@@ -172,6 +173,7 @@ export default function RegisterPage() {
                   onChange={handleChange}
                   className="pl-10 bg-slate-800/50 border-slate-700 text-white placeholder:text-slate-500"
                   required
+                  autoComplete="email"
                 />
               </div>
             </div>
@@ -190,6 +192,7 @@ export default function RegisterPage() {
                   className="pl-10 pr-10 bg-slate-800/50 border-slate-700 text-white placeholder:text-slate-500"
                   required
                   minLength={6}
+                  autoComplete="new-password"
                 />
                 <button
                   type="button"

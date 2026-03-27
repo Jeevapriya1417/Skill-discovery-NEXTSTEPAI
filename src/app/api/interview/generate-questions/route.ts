@@ -32,13 +32,13 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const prompt = `Generate exactly 5 open-ended interview questions for a ${domain} communication round interview.
-
+    const prompt = `Generate exactly 5 very short, simple, and fundamental interview questions for a ${domain} role.
+    
 These questions should:
-- Test the candidate's ability to explain technical concepts verbally and clearly
-- Require detailed explanations, not one-word answers
-- Focus on conceptual understanding and the ability to articulate thoughts
-- Cover different aspects like system design, problem-solving, best practices, and real-world scenarios
+- Be easy to understand and answer in a few sentences
+- Focus on basic definitions and core concepts (e.g., "What is ${domain}?", "Explain the purpose of [key tool in ${domain}]")
+- Be ideal for a quick communication and confidence check
+- Avoid complex architecture or system design scenarios
 
 Return as a valid JSON array of strings where each string is one question.
 
@@ -54,11 +54,11 @@ Only return the JSON array, nothing else.`;
       console.error('JSON parse error:', parseError);
       // Fallback questions
       questions = [
-        `Explain your understanding of key concepts in ${domain}.`,
-        `Walk me through how you would approach a complex problem in ${domain}.`,
-        `Describe a challenging project you worked on and how you solved it.`,
-        `What are the best practices you follow in ${domain}?`,
-        `How do you stay updated with the latest trends in ${domain}?`,
+        `What is ${domain} and what are its primary use cases?`,
+        `What are the most important tools or libraries used in ${domain}?`,
+        `Explain a core concept that every ${domain} developer should know.`,
+        `What interested you most about working with ${domain}?`,
+        `How do you handle common tasks or challenges in ${domain}?`,
       ];
     }
 
@@ -70,10 +70,10 @@ Only return the JSON array, nothing else.`;
       },
       { status: 200 }
     );
-  } catch (error) {
+  } catch (error: any) {
     console.error('Generate interview questions error:', error);
     return NextResponse.json(
-      { error: 'Internal server error' },
+      { error: `Generate Error: ${error?.message || 'Unknown'}` },
       { status: 500 }
     );
   }

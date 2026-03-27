@@ -39,22 +39,26 @@ export async function POST(req: NextRequest) {
 
     const prompt = `A professional currently working as a ${currentRole} with ${experience} years of experience and skilled in ${technologies.join(', ')} wants to transition to a ${targetRole} position.
 
-Generate exactly 15 multiple choice questions to assess their current skills and readiness for the target role:
-- 7 questions about their current role expertise
-- 8 questions about foundational knowledge needed for the target role
+Generate exactly 15 questions to assess their CURRENT skills (${currentRole}) so we know their baseline before providing a transition roadmap:
+- 13 Multiple Choice Questions (MCQs)
+- 2 Coding Problems (where they need to write code)
 
-For each question provide:
-- The question text
-- Four options labeled A, B, C, D
-- The correct answer (just the letter)
-- A tag indicating whether it tests "current" role skills or "target" role skills
+Distribution:
+- All 15 questions must be about their current role expertise (${currentRole}), focusing on advanced topics to gauge their true proficiency.
 
-Return the response as a valid JSON array where each object has fields:
-- "question": string
-- "options": array of 4 strings
-- "correctAnswer": string (one of "A", "B", "C", "D")
-- "tag": string (either "current" or "target")
+For each MCQ, provide:
+- "question": text
+- "type": "mcq"
+- "options": array of 4 strings labeled A, B, C, D
+- "correctAnswer": the letter (A, B, C, or D)
+- "tag": "current"
 
+For each Coding Problem, provide:
+- "question": text 
+- "type": "coding"
+- "tag": "current"
+
+Return the response as a valid JSON array of objects.
 Only return the JSON array, nothing else.`;
 
     const response = await askGemini(prompt);
@@ -85,6 +89,7 @@ Only return the JSON array, nothing else.`;
     // Return questions without correct answers
     const questionsWithoutAnswers = questions.map((q: any) => ({
       question: q.question,
+      type: q.type,
       options: q.options,
       tag: q.tag,
     }));

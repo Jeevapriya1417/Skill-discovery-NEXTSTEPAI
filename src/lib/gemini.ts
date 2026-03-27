@@ -9,7 +9,7 @@ if (!GOOGLE_GEMINI_API_KEY) {
 const genAI = new GoogleGenerativeAI(GOOGLE_GEMINI_API_KEY);
 
 export async function askGemini(prompt: string): Promise<string> {
-  const models = ['gemini-2.5-flash', 'gemini-1.5-flash', 'gemini-2.5-pro', 'gemini-pro'];
+  const models = ['gemini-2.5-flash', 'gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-pro'];
   let lastError;
 
   for (const modelName of models) {
@@ -45,3 +45,4 @@ export function sanitizeJsonResponse(response: string): string {
 }
 
 export default genAI;
+

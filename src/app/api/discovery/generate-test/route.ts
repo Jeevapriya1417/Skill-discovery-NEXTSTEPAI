@@ -34,22 +34,28 @@ export async function POST(req: NextRequest) {
     }
 
     const difficulty = user.selfRatedSkillLevel || 'Beginner';
-    const prompt = `You are a technical skill assessor. For a student who knows the following programming languages and technologies: ${languages.join(', ')} and has a self-rated proficiency of ${difficulty}, generate exactly 10 multiple choice questions to test their proficiency. 
+    const prompt = `You are a technical skill assessor. For a student who knows the following programming languages and technologies: ${languages.join(', ')} and has a self-rated proficiency of ${difficulty}, generate exactly 10 questions to test their proficiency. 
+
+The test must include:
+- 8 Multiple Choice Questions (MCQs)
+- 2 Coding Problems (where they need to write code)
 
 The difficulty of the questions should be ${difficulty} level.
 
-For each question provide:
-- The question text
-- Four options labeled A, B, C, D
-- The correct answer (just the letter)
+For each MCQ provide:
+- "question": text
+- "type": "mcq"
+- "question": text
+- "type": "mcq"
+- "options": exactly 4 strings in a flat array (e.g., ["option1", "option2", "option3", "option4"])
+- "correctAnswer": the letter (A, B, C, or D)
 
-Mix easy, medium, and hard questions. Cover different aspects like syntax, concepts, best practices, and problem-solving.
+For each Coding Problem provide:
+- "question": text describing the problem and requirements
+- "type": "coding"
+- "correctAnswer": a sample solution or key logic to look for (optional but helpful)
 
-Return the response as a valid JSON array where each object has fields:
-- "question": string
-- "options": array of 4 strings
-- "correctAnswer": string (one of "A", "B", "C", "D")
-
+Return the response as a valid JSON array of objects.
 Only return the JSON array, nothing else.`;
 
     const response = await askGemini(prompt);
@@ -58,6 +64,31 @@ Only return the JSON array, nothing else.`;
     let questions;
     try {
       questions = JSON.parse(cleanedResponse);
+
+      // Normalize questions to match schema
+      if (Array.isArray(questions)) {
+        questions = questions.map((q: any) => {
+          if (q.type === 'mcq' && q.options) {
+            // If options is an array of objects like [{A: '...'}, {B: '...'}] or {A: '...', B: '...'}
+            if (Array.isArray(q.options) && q.options.length > 0 && typeof q.options[0] === 'object') {
+              const firstObj = q.options[0];
+              q.options = [firstObj.A, firstObj.B, firstObj.C, firstObj.D].filter(Boolean);
+            } else if (!Array.isArray(q.options) && typeof q.options === 'object') {
+              q.options = [q.options.A, q.options.B, q.options.C, q.options.D].filter(Boolean);
+            }
+            
+            // Final fallback: ensure it's an array of strings
+            if (!Array.isArray(q.options)) {
+              q.options = [];
+            } else {
+              q.options = q.options.map((opt: any) => String(opt));
+            }
+          } else if (q.type === 'mcq' && !q.options) {
+            q.options = [];
+          }
+          return q;
+        });
+      }
     } catch (parseError) {
       console.error('JSON parse error:', parseError);
       return NextResponse.json(
@@ -80,6 +111,7 @@ Only return the JSON array, nothing else.`;
     // Return questions without correct answers
     const questionsWithoutAnswers = questions.map((q: any) => ({
       question: q.question,
+      type: q.type,
       options: q.options,
     }));
 

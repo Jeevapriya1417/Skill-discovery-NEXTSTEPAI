@@ -26,31 +26,33 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Calculate scores
+    // Calculate scores (only current role is tested now)
     let currentRoleCorrect = 0;
-    let targetRoleCorrect = 0;
-    let currentRoleTotal = 0;
-    let targetRoleTotal = 0;
-    const wrongTargetQuestions: any[] = [];
-
-    assessment.questions.forEach((q: any, index: number) => {
+    let currentRoleMcqTotal = 0;
+    
+    const assessmentDetails = assessment.questions.map((q: any, i: number) => {
+      const isMcq = q.type === 'mcq';
+      const isCorrect = isMcq ? userAnswers[i] === q.correctAnswer : 'AI to evaluate';
+      
       if (q.tag === 'current') {
-        currentRoleTotal++;
-        if (userAnswers[index] === q.correctAnswer) {
-          currentRoleCorrect++;
-        }
-      } else {
-        targetRoleTotal++;
-        if (userAnswers[index] === q.correctAnswer) {
-          targetRoleCorrect++;
-        } else {
-          wrongTargetQuestions.push(q.question);
+        if (isMcq) {
+          currentRoleMcqTotal++;
+          if (userAnswers[i] === q.correctAnswer) currentRoleCorrect++;
         }
       }
+
+      return {
+        question: q.question,
+        type: q.type,
+        tag: q.tag,
+        userAnswer: userAnswers[i],
+        correctAnswer: q.correctAnswer,
+        isCorrect
+      };
     });
 
-    const currentRoleScore = Math.round((currentRoleCorrect / currentRoleTotal) * 100) || 0;
-    const targetRoleScore = Math.round((targetRoleCorrect / targetRoleTotal) * 100) || 0;
+    const currentRoleScore = currentRoleMcqTotal > 0 ? Math.round((currentRoleCorrect / currentRoleMcqTotal) * 100) : 50;
+    const targetRoleScore = 0; // Target role is not tested, so score is 0 or N/A
 
     // Get user for context
     const user = await User.findById(assessment.userId);
@@ -58,25 +60,40 @@ export async function POST(req: NextRequest) {
     const targetRole = user?.targetRole;
 
     // Get AI gap analysis
-    const prompt = `A ${currentRole} professional scored ${currentRoleScore}% on current role questions and ${targetRoleScore}% on ${targetRole} questions.
+    const prompt = `You are a career consultant for a professional transitioning from ${currentRole} to ${targetRole}.
+Evaluate their performance on a proficiency test for their CURRENT role (${currentRole}). They were NOT tested on the target role yet.
 
-Target role questions they got wrong:
-${wrongTargetQuestions.map((q, i) => `${i + 1}. ${q}`).join('\n')}
+Test Results (${currentRole}):
+${assessmentDetails.map((d: any, i: number) => `
+Question ${i + 1} (Tag: ${d.tag}, Type: ${d.type}): ${d.question}
+User's Answer: ${d.userAnswer}
+${d.type === 'mcq' ? `Correct Answer: ${d.correctAnswer}` : 'This is a coding problem, evaluate the logic and depth of knowledge.'}
+`).join('\n')}
 
-Based on this analysis:
-1. Identify which skills from their current role are transferable to ${targetRole}
-2. Identify the specific skill gaps they need to fill
-3. Assign a severity level (Low, Medium, High) to each skill gap
-4. Calculate a readiness percentage (0-100) for the transition
+Based on their CURRENT ROLE test results (score: ${currentRoleScore}%) and the fact that they are pivoting to ${targetRole}:
+1. Identify high-value transferable skills they possess from their current role.
+2. Identify specific skill gaps they WILL need to learn for the new ${targetRole} role. Base this on what a typical ${currentRole} lacks compared to a ${targetRole}.
+3. Assign severity to each gap (Low, Medium, High).
+4. Calculate a realistic Readiness Percentage (0-100) for starting learning/transitioning, based on their baseline technical foundations.
 
 Return as valid JSON with this structure:
 {
-  "transferableSkills": ["skill 1", "skill 2", ...],
+  "transferableSkills": ["..."],
   "skillGaps": [
-    { "skill": "skill name", "severity": "Low/Medium/High" },
-    ...
+    { "skill": "...", "severity": "..." }
   ],
-  "readinessPercentage": number
+  "readinessPercentage": 0,
+  "results": [
+    {
+      "question": "...",
+      "type": "mcq/coding",
+      "userAnswer": "...",
+      "correctAnswer": "...",
+      "sampleSolution": "...",
+      "isCorrect": true/false/"AI evaluated",
+      "feedback": "..."
+    }
+  ]
 }
 
 Only return the JSON, nothing else.`;
@@ -99,10 +116,11 @@ Only return the JSON, nothing else.`;
     // Update assessment
     assessment.answers = userAnswers;
     assessment.scores = { 
-      total: Math.round((currentRoleScore + targetRoleScore) / 2),
+      total: currentRoleScore, // Only storing current role score now
       currentRoleScore,
-      targetRoleScore 
+      targetRoleScore: 0
     };
+    assessment.results = gapAnalysis.results || [];
     await assessment.save();
 
     // Save gap analysis
@@ -123,6 +141,7 @@ Only return the JSON, nothing else.`;
         transferableSkills: gapAnalysis.transferableSkills || [],
         skillGaps: gapAnalysis.skillGaps || [],
         readinessPercentage: gapAnalysis.readinessPercentage || 0,
+        results: assessment.results,
       },
       { status: 200 }
     );

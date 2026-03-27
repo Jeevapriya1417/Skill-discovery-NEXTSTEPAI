@@ -7,7 +7,17 @@ export async function POST(req: NextRequest) {
   try {
     await connectDB();
     
-    const { email, password } = await req.json();
+    const bodyText = await req.text();
+    console.log('Login request body text:', bodyText);
+    let body;
+    try {
+      body = JSON.parse(bodyText);
+    } catch (e) {
+      console.error('Failed to parse login body as JSON:', e);
+      return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
+    }
+    
+    const { email, password } = body;
 
     // Validate required fields
     if (!email || !password) {
@@ -43,7 +53,10 @@ export async function POST(req: NextRequest) {
       userType: user.userType,
       collegeName: user.collegeName,
       yearOfStudy: user.yearOfStudy,
+      selfRatedSkillLevel: user.selfRatedSkillLevel,
       currentRole: user.currentRole,
+      yearsOfExperience: user.yearsOfExperience,
+      technologiesCurrentlyWorkingWith: user.technologiesCurrentlyWorkingWith,
       targetRole: user.targetRole,
       languagesKnown: user.languagesKnown,
       selectedDomain: user.selectedDomain,
@@ -53,10 +66,10 @@ export async function POST(req: NextRequest) {
       { message: 'Login successful', user: userResponse },
       { status: 200 }
     );
-  } catch (error) {
-    console.error('Login error:', error);
+  } catch (error: any) {
+    console.error('Login error detail:', error);
     return NextResponse.json(
-      { error: 'Internal server error' },
+      { error: error?.message || 'Internal server error' },
       { status: 500 }
     );
   }

@@ -24,9 +24,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Separator } from '@/components/ui/separator';
 import Navbar from '@/components/Navbar';
 
-interface Question {
-  question: string;
-}
+type Question = string;
 
 interface AnalysisResult {
   vocalMetrics: {
@@ -210,7 +208,7 @@ export default function MockInterviewPage() {
         body: JSON.stringify({
           transcript: transcribeData.transcript,
           words: transcribeData.words,
-          question: questions[currentQuestionIndex].question,
+          question: questions[currentQuestionIndex],
           durationSeconds: recordingTime,
         }),
       });
@@ -247,7 +245,7 @@ export default function MockInterviewPage() {
         body: JSON.stringify({
           userId: user._id,
           domain,
-          questions: questions.map(q => q.question),
+          questions: questions,
           transcripts,
           vocalMetrics: analysisResults.map(r => r.vocalMetrics),
           contentScores: analysisResults.map(r => r.contentScores),
@@ -412,21 +410,22 @@ export default function MockInterviewPage() {
             {Math.round(((currentQuestionIndex + 1) / questions.length) * 100)}%
           </span>
         </div>
-        <Progress value={((currentQuestionIndex + 1) / questions.length) * 100} />
       </div>
+      
+      {error && (
+        <Alert variant="destructive" className="mb-6">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
 
       <Card className="glass-card mb-6">
         <CardContent className="p-8">
           <h2 className="text-xl font-semibold text-white mb-6">
-            {questions[currentQuestionIndex]?.question}
+            {questions[currentQuestionIndex]}
           </h2>
 
-          {transcripts[currentQuestionIndex] && (
-            <div className="p-4 rounded-lg bg-slate-800/50 mb-6">
-              <p className="text-sm text-slate-400 mb-2">Your Response:</p>
-              <p className="text-slate-300">{transcripts[currentQuestionIndex]}</p>
-            </div>
-          )}
+          {/* Transcript hidden during interview for a cleaner flow as per user request */}
         </CardContent>
       </Card>
 
@@ -439,7 +438,10 @@ export default function MockInterviewPage() {
             disabled={loading}
           >
             {loading ? (
-              <Loader2 className="w-6 h-6 animate-spin" />
+              <>
+                <Loader2 className="w-6 h-6 animate-spin mr-2" />
+                Processing response...
+              </>
             ) : (
               <>
                 <Mic className="w-6 h-6 mr-2" />

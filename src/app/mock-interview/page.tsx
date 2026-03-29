@@ -14,7 +14,11 @@ import {
   AlertCircle,
   CheckCircle2,
   RefreshCw,
-  Sparkles
+  Sparkles,
+  Clock,
+  Target,
+  BarChart3,
+  Lightbulb
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -55,18 +59,17 @@ interface AnalysisResult {
 
 export default function MockInterviewPage() {
   const router = useRouter();
-  const [step, setStep] = useState<'intro' | 'setup' | 'interview' | 'analyzing' | 'feedback'>('intro');
-  const [questions, setQuestions] = useState<Question[]>([]);
-  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
+  const [step, setStep] = useState<'intro' | 'session' | 'mini-score' | 'final-report'>('intro');
+  const [session, setSession] = useState<any>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
-  const [transcripts, setTranscripts] = useState<string[]>([]);
-  const [analysisResults, setAnalysisResults] = useState<AnalysisResult[]>([]);
-  const [sessionFeedback, setSessionFeedback] = useState<any>(null);
   const [loading, setLoading] = useState(false);
+  const [processingStep, setProcessingStep] = useState(false);
   const [error, setError] = useState('');
   const [user, setUser] = useState<any>(null);
   const [domain, setDomain] = useState('');
+  
+  const [code, setCode] = useState('');
   
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -105,7 +108,7 @@ export default function MockInterviewPage() {
     setError('');
     
     try {
-      const response = await fetch('/api/interview/generate-questions', {
+      const response = await fetch('/api/interview/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId: user._id }),
@@ -114,13 +117,15 @@ export default function MockInterviewPage() {
       const data = await response.json();
       
       if (!response.ok) {
-        throw new Error(data.error || 'Failed to generate questions');
+        throw new Error(data.error || 'Failed to start session');
       }
 
-      setQuestions(data.questions);
-      setTranscripts(new Array(data.questions.length).fill(''));
-      setAnalysisResults([]);
-      setStep('setup');
+      setSession(data.session);
+      if (data.session.status === 'completed') {
+        setStep('final-report');
+      } else {
+        setStep('session');
+      }
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -163,11 +168,11 @@ export default function MockInterviewPage() {
   };
 
   const processAudio = async (audioBlob: Blob) => {
-    setLoading(true);
+    setProcessingStep(true);
     setError('');
 
     try {
-      // Upload audio
+      // 1. Upload audio
       const formData = new FormData();
       formData.append('audio', audioBlob, 'recording.webm');
       formData.append('userId', user._id);
@@ -178,91 +183,75 @@ export default function MockInterviewPage() {
       });
 
       const uploadData = await uploadRes.json();
-      
-      if (!uploadRes.ok) {
-        throw new Error(uploadData.error || 'Failed to upload audio');
-      }
+      if (!uploadRes.ok) throw new Error(uploadData.error || 'Upload failed');
 
-      // Transcribe
-      const transcribeRes = await fetch('/api/interview/transcribe', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ audioUrl: uploadData.audioUrl }),
-      });
+      await submitResponse(uploadData.audioUrl);
+    } catch (err: any) {
+      setError(err.message);
+      setProcessingStep(false);
+    }
+  };
 
-      const transcribeData = await transcribeRes.json();
-      
-      if (!transcribeRes.ok) {
-        throw new Error(transcribeData.error || 'Failed to transcribe');
-      }
+  const submitResponse = async (audioUrl?: string) => {
+    setProcessingStep(true);
+    setError('');
 
-      // Update transcripts
-      const newTranscripts = [...transcripts];
-      newTranscripts[currentQuestionIndex] = transcribeData.transcript;
-      setTranscripts(newTranscripts);
-
-      // Analyze
-      const analyzeRes = await fetch('/api/interview/analyze', {
+    try {
+      const processRes = await fetch('/api/interview/process-step', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          transcript: transcribeData.transcript,
-          words: transcribeData.words,
-          question: questions[currentQuestionIndex],
-          durationSeconds: recordingTime,
+          sessionId: session._id,
+          audioUrl: audioUrl || null,
+          code: code || null,
+          section: session.currentSection,
+          questionIndex: session.currentQuestionIndex,
+          durationSeconds: recordingTime
         }),
       });
 
-      const analyzeData = await analyzeRes.json();
-      
-      if (!analyzeRes.ok) {
-        throw new Error(analyzeData.error || 'Failed to analyze');
-      }
+      const processData = await processRes.json();
+      if (!processRes.ok) throw new Error(processData.error || 'Processing failed');
 
-      setAnalysisResults([...analysisResults, analyzeData]);
+      const updatedSession = processData.session;
+      setSession(updatedSession);
+      setCode(''); // Reset code editor
+      setRecordingTime(0);
 
-      // Move to next question or finish
-      if (currentQuestionIndex < questions.length - 1) {
-        setCurrentQuestionIndex(currentQuestionIndex + 1);
-      } else {
+      // logic for "mini-score" after section 1
+      if (session.currentSection === 1 && updatedSession.currentSection === 2) {
+        setStep('mini-score');
+      } else if (processData.status === 'completed') {
         generateFeedback();
       }
     } catch (err: any) {
       setError(err.message);
     } finally {
-      setLoading(false);
+      setProcessingStep(false);
     }
   };
 
   const generateFeedback = async () => {
-    setStep('analyzing');
     setLoading(true);
-
+    setStep('session'); // Keep overlay on session while generating final report
+    setError('');
     try {
       const response = await fetch('/api/interview/feedback', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userId: user._id,
-          domain,
-          questions: questions,
-          transcripts,
-          vocalMetrics: analysisResults.map(r => r.vocalMetrics),
-          contentScores: analysisResults.map(r => r.contentScores),
-        }),
+        body: JSON.stringify({ sessionId: session._id }),
       });
 
       const data = await response.json();
-      
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to generate feedback');
-      }
+      if (!response.ok) throw new Error(data.error || 'Feedback failed');
 
-      setSessionFeedback(data);
-      setStep('feedback');
+      setSession({
+        ...data.session,
+        conclusion: data.conclusion
+      });
+      setStep('final-report');
     } catch (err: any) {
       setError(err.message);
-      setStep('interview');
     } finally {
       setLoading(false);
     }
@@ -346,276 +335,348 @@ export default function MockInterviewPage() {
     </motion.div>
   );
 
-  const renderSetup = () => (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="max-w-2xl mx-auto text-center"
-    >
-      <Card className="glass-card">
-        <CardContent className="p-8">
-          <div className="w-16 h-16 rounded-full bg-indigo-500/20 flex items-center justify-center mx-auto mb-6">
-            <Mic className="w-8 h-8 text-indigo-400" />
+  const renderSession = () => {
+    const { currentSection, currentQuestionIndex, section2, section3, section4 } = session;
+    let question = "";
+    let progress = 0;
+
+    if (currentSection === 1) {
+      question = "Introduce yourself! Tell us about your background and interests. Please speak clearly for at least 60 seconds.";
+      progress = 5;
+    } else if (currentSection === 2) {
+      question = section2[currentQuestionIndex].question;
+      progress = 10 + (currentQuestionIndex / 10) * 60;
+    } else if (currentSection === 3) {
+      question = section3.questions[currentQuestionIndex].question;
+      progress = 70 + (currentQuestionIndex / 2) * 15;
+    } else if (currentSection === 4) {
+      question = section4.topic;
+      progress = 85 + 10;
+    }
+
+    const isMinTimeSection = currentSection === 1 || currentSection === 4;
+    const isCodingSection = currentSection === 3 && section3.sectionType === '3A';
+    const canStop = !isMinTimeSection || recordingTime >= 60;
+    const timeRemaining = Math.max(0, 60 - recordingTime);
+
+    return (
+      <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} className="max-w-4xl mx-auto">
+        <div className="mb-6">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-slate-400"> Section {currentSection} of 4 </span>
+            <span className="text-pink-400">{Math.round(progress)}% Session Progress</span>
           </div>
-          
-          <h2 className="text-2xl font-bold text-white mb-4">Ready to Begin?</h2>
-          <p className="text-slate-400 mb-8">
-            You&apos;ll be asked {questions.length} questions. For each question:
-          </p>
-
-          <div className="space-y-4 mb-8 text-left">
-            <div className="flex items-center space-x-3 p-4 rounded-lg bg-slate-800/50">
-              <div className="w-8 h-8 rounded-full bg-indigo-500 flex items-center justify-center text-white font-bold">1</div>
-              <span className="text-slate-300">Read the question carefully</span>
-            </div>
-            <div className="flex items-center space-x-3 p-4 rounded-lg bg-slate-800/50">
-              <div className="w-8 h-8 rounded-full bg-indigo-500 flex items-center justify-center text-white font-bold">2</div>
-              <span className="text-slate-300">Click the record button when ready</span>
-            </div>
-            <div className="flex items-center space-x-3 p-4 rounded-lg bg-slate-800/50">
-              <div className="w-8 h-8 rounded-full bg-indigo-500 flex items-center justify-center text-white font-bold">3</div>
-              <span className="text-slate-300">Speak clearly and answer thoroughly</span>
-            </div>
-            <div className="flex items-center space-x-3 p-4 rounded-lg bg-slate-800/50">
-              <div className="w-8 h-8 rounded-full bg-indigo-500 flex items-center justify-center text-white font-bold">4</div>
-              <span className="text-slate-300">Click stop when finished</span>
-            </div>
-          </div>
-
-          <Button
-            size="lg"
-            className="bg-gradient-to-r from-pink-500 to-rose-500"
-            onClick={() => setStep('interview')}
-          >
-            I&apos;m Ready
-            <ArrowRight className="w-5 h-5 ml-2" />
-          </Button>
-        </CardContent>
-      </Card>
-    </motion.div>
-  );
-
-  const renderInterview = () => (
-    <motion.div
-      initial={{ opacity: 0, x: 20 }}
-      animate={{ opacity: 1, x: 0 }}
-      className="max-w-2xl mx-auto"
-    >
-      <div className="mb-6">
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-slate-400">
-            Question {currentQuestionIndex + 1} of {questions.length}
-          </span>
-          <span className="text-pink-400">
-            {Math.round(((currentQuestionIndex + 1) / questions.length) * 100)}%
-          </span>
+          <Progress value={progress} className="bg-slate-800" />
         </div>
-      </div>
-      
-      {error && (
-        <Alert variant="destructive" className="mb-6">
-          <AlertCircle className="h-4 w-4" />
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      )}
 
-      <Card className="glass-card mb-6">
-        <CardContent className="p-8">
-          <h2 className="text-xl font-semibold text-white mb-6">
-            {questions[currentQuestionIndex]}
-          </h2>
+        {error && (
+          <Alert variant="destructive" className="mb-6">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
 
-          {/* Transcript hidden during interview for a cleaner flow as per user request */}
-        </CardContent>
-      </Card>
-
-      <div className="flex justify-center">
-        {!isRecording ? (
-          <Button
-            size="lg"
-            className="bg-gradient-to-r from-pink-500 to-rose-500 px-8 py-6"
-            onClick={startRecording}
-            disabled={loading}
-          >
-            {loading ? (
-              <>
-                <Loader2 className="w-6 h-6 animate-spin mr-2" />
-                Processing response...
-              </>
-            ) : (
-              <>
-                <Mic className="w-6 h-6 mr-2" />
-                {transcripts[currentQuestionIndex] ? 'Re-record' : 'Start Recording'}
-              </>
+        <Card className="glass-card mb-6 overflow-hidden">
+          <div className="h-2 bg-gradient-to-r from-pink-500 to-rose-500" />
+          <CardContent className="p-8">
+            <Badge variant="outline" className="mb-4 text-indigo-400 border-indigo-400/30">
+              {currentSection === 1 ? 'Section 1: Introduction' 
+               : currentSection === 2 ? 'Section 2: Domain Deep-Dive' 
+               : currentSection === 3 ? (isCodingSection ? 'Section 3: Coding Challenge' : 'Section 3: Problem Solving')
+               : 'Section 4: General Topic Speaking'}
+            </Badge>
+            <h2 className="text-2xl font-semibold text-white leading-relaxed">
+              {question}
+            </h2>
+            {isMinTimeSection && (
+              <p className="text-slate-500 text-sm mt-4 flex items-center">
+                <Clock className="w-4 h-4 mr-2" />
+                Minimum duration: 60 seconds. {recordingTime < 60 ? `Keep speaking! (${60 - recordingTime}s left)` : 'Target reached!'}
+              </p>
             )}
-          </Button>
-        ) : (
-          <div className="text-center">
-            <div className="w-20 h-20 rounded-full bg-red-500/20 flex items-center justify-center mx-auto mb-4 animate-pulse">
-              <div className="w-16 h-16 rounded-full bg-red-500 flex items-center justify-center">
-                <Square className="w-6 h-6 text-white" />
-              </div>
+          </CardContent>
+        </Card>
+
+        {isCodingSection ? (
+          <div className="space-y-6">
+            <div className="relative group">
+              <div className="absolute -inset-1 bg-gradient-to-r from-pink-500 to-indigo-500 rounded-xl blur opacity-25 group-focus-within:opacity-50 transition duration-1000"></div>
+              <textarea
+                value={code}
+                onChange={(e) => setCode(e.target.value)}
+                placeholder="// Write your code here..."
+                className="relative w-full h-80 bg-slate-950 border border-slate-800 rounded-xl p-6 font-mono text-sm text-indigo-300 focus:outline-none focus:ring-2 focus:ring-pink-500/50 transition-all"
+              />
             </div>
-            <p className="text-2xl font-bold text-white mb-2">{formatTime(recordingTime)}</p>
-            <p className="text-slate-400 mb-4">Recording...</p>
-            <Button
-              variant="destructive"
-              size="lg"
-              onClick={stopRecording}
-            >
-              Stop Recording
-            </Button>
+            <div className="flex justify-end">
+              <Button
+                size="lg"
+                className="bg-gradient-to-r from-pink-500 to-rose-500 px-10 py-6 rounded-xl shadow-lg shadow-pink-500/20 hover:scale-105 transition-all text-lg font-bold"
+                onClick={() => submitResponse()}
+                disabled={processingStep || !code.trim()}
+              >
+                {processingStep ? (
+                  <>
+                    <Loader2 className="w-6 h-6 animate-spin mr-3" />
+                    Saving solution...
+                  </>
+                ) : (
+                  <>
+                    Submit Solution
+                    <ArrowRight className="w-6 h-6 ml-3" />
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex justify-center">
+            {!isRecording ? (
+              <Button
+                size="lg"
+                className="bg-gradient-to-r from-pink-500 to-rose-500 px-10 py-8 rounded-2xl shadow-lg shadow-pink-500/20 hover:scale-105 transition-all text-lg font-bold"
+                onClick={startRecording}
+                disabled={processingStep}
+              >
+                {processingStep ? (
+                  <>
+                    <Loader2 className="w-6 h-6 animate-spin mr-3" />
+                    Processing speech...
+                  </>
+                ) : (
+                  <>
+                    <Mic className="w-6 h-6 mr-3" />
+                    Start Speaking
+                  </>
+                )}
+              </Button>
+            ) : (
+              <div className="text-center w-full">
+                <div className="w-24 h-24 rounded-full bg-red-500/20 flex items-center justify-center mx-auto mb-6 animate-pulse border-2 border-red-500/30">
+                  <div className="w-16 h-16 rounded-full bg-red-500 flex items-center justify-center shadow-lg shadow-red-500/40">
+                    <Square className="w-6 h-6 text-white" />
+                  </div>
+                </div>
+                <p className="text-4xl font-mono font-bold text-white mb-3 tracking-tighter">
+                  {formatTime(recordingTime)}
+                </p>
+                <div className="flex flex-col items-center justify-center gap-2 mb-8">
+                  <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 rounded-full bg-red-500 animate-ping" />
+                    <p className="text-slate-400 uppercase tracking-widest text-xs font-bold">Live Capture Active</p>
+                  </div>
+                  {isMinTimeSection && !canStop && (
+                    <p className="text-amber-400/80 text-xs font-medium bg-amber-400/10 px-3 py-1 rounded-full">
+                      Please speak for {timeRemaining} more seconds
+                    </p>
+                  )}
+                </div>
+                <Button
+                  variant={canStop ? "destructive" : "secondary"}
+                  size="lg"
+                  onClick={stopRecording}
+                  disabled={!canStop}
+                  className="px-12 py-6 rounded-xl font-bold text-lg"
+                >
+                  {canStop ? "Stop & Process" : `Recording... (${timeRemaining}s)`}
+                </Button>
+              </div>
+            )}
           </div>
         )}
-      </div>
-    </motion.div>
-  );
+      </motion.div>
+    );
+  };
 
-  const renderAnalyzing = () => (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      className="max-w-md mx-auto text-center py-20"
-    >
-      <div className="relative w-24 h-24 mx-auto mb-8">
-        <div className="absolute inset-0 rounded-full border-4 border-pink-500/20" />
-        <div className="absolute inset-0 rounded-full border-4 border-pink-500 border-t-transparent animate-spin" />
-        <Sparkles className="absolute inset-0 m-auto w-10 h-10 text-pink-400" />
-      </div>
-      <h2 className="text-2xl font-bold text-white mb-2">Generating Feedback</h2>
-      <p className="text-slate-400">Analyzing your responses and preparing insights...</p>
+  const renderMiniScore = () => (
+    <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="max-w-md mx-auto text-center">
+      <Card className="glass-card p-8 border-indigo-500/30">
+        <div className="w-20 h-20 rounded-full bg-indigo-500/10 flex items-center justify-center mx-auto mb-6">
+          <TrendingUp className="w-10 h-10 text-indigo-400" />
+        </div>
+        <h2 className="text-2xl font-bold text-white mb-2">Introduction Complete!</h2>
+        <p className="text-slate-400 mb-8">Your initial vocal confidence score is strong. Ready to dive into domain questions?</p>
+        
+        <div className="flex flex-col gap-4 p-6 bg-slate-900/50 rounded-2xl mb-8 border border-slate-800">
+           <div className="flex justify-between items-center text-sm">
+             <span className="text-slate-500">Confidence Score</span>
+             <span className="text-indigo-400 font-bold">{session.section1.score}%</span>
+           </div>
+           <Progress value={session.section1.score} className="h-2 bg-slate-800" />
+        </div>
+
+        <Button size="lg" className="w-full btn-gradient py-6 rounded-xl font-bold" onClick={() => setStep('session')}>
+          Start Section 2: Domain Questions
+          <ArrowRight className="w-5 h-5 ml-2" />
+        </Button>
+      </Card>
     </motion.div>
   );
 
   const renderFeedback = () => {
-    const avgVocalMetrics = analysisResults.length > 0 ? {
-      fillerWords: Math.round(analysisResults.reduce((sum, r) => sum + r.vocalMetrics.fillerWordCount.total, 0) / analysisResults.length),
-      wpm: Math.round(analysisResults.reduce((sum, r) => sum + r.vocalMetrics.speakingPace.wordsPerMinute, 0) / analysisResults.length),
-    } : { fillerWords: 0, wpm: 0 };
-
-    const avgContentScores = analysisResults.length > 0 ? {
-      relevance: Math.round(analysisResults.reduce((sum, r) => sum + r.contentScores.relevanceScore, 0) / analysisResults.length),
-      clarity: Math.round(analysisResults.reduce((sum, r) => sum + r.contentScores.clarityScore, 0) / analysisResults.length),
-      depth: Math.round(analysisResults.reduce((sum, r) => sum + r.contentScores.depthScore, 0) / analysisResults.length),
-    } : { relevance: 0, clarity: 0, depth: 0 };
+    const report = session.finalReport;
+    const { technicalScore, problemSolvingScore, overallConfidenceScore } = report; // overallConfidenceScore is used as Vocal score
+    const totalScore = Math.round((technicalScore * 0.5) + (problemSolvingScore * 0.3) + (overallConfidenceScore * 0.2));
 
     return (
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="max-w-4xl mx-auto"
-      >
-        <div className="text-center mb-8">
-          <h2 className="text-3xl font-bold text-white mb-4">Interview Feedback</h2>
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="max-w-5xl mx-auto pb-20">
+        <div className="text-center mb-12">
+          <Badge className="mb-4 bg-pink-500/10 text-pink-400 border-pink-500/20">Evaluation Complete</Badge>
+          <h2 className="text-4xl font-bold text-white mb-6">Interview Performance Report</h2>
           
-          <div className="inline-flex items-center justify-center w-32 h-32 rounded-full bg-gradient-to-r from-pink-500 to-rose-500 mb-4">
+          <div className="flex justify-center items-center gap-12 mb-12">
             <div className="text-center">
-              <span className="text-3xl font-bold text-white">{sessionFeedback?.overallConfidence}%</span>
-              <p className="text-xs text-white/80">Confidence</p>
+               <div className="w-24 h-24 rounded-2xl bg-slate-900 border border-slate-800 flex flex-col items-center justify-center mb-2">
+                 <span className="text-2xl font-bold text-indigo-400">{technicalScore}%</span>
+                 <span className="text-[8px] text-slate-500 uppercase font-bold">Technical</span>
+               </div>
+            </div>
+            <div className="inline-flex items-center justify-center p-3 rounded-full bg-gradient-to-r from-pink-500 via-purple-500 to-indigo-500 shadow-2xl shadow-purple-500/30 scale-110">
+              <div className="w-32 h-32 rounded-full bg-slate-950 flex flex-col items-center justify-center border-4 border-slate-900">
+                <span className="text-4xl font-bold text-white leading-none">{totalScore}%</span>
+                <p className="text-[10px] text-slate-500 uppercase font-bold mt-1">Overall</p>
+              </div>
+            </div>
+            <div className="text-center">
+               <div className="w-24 h-24 rounded-2xl bg-slate-900 border border-slate-800 flex flex-col items-center justify-center mb-2">
+                 <span className="text-2xl font-bold text-emerald-400">{problemSolvingScore}%</span>
+                 <span className="text-[8px] text-slate-500 uppercase font-bold">Problem Solving</span>
+               </div>
             </div>
           </div>
         </div>
 
-        <div className="grid md:grid-cols-2 gap-6 mb-8">
-          {/* Vocal Metrics */}
-          <Card className="glass-card">
+        <div className="grid md:grid-cols-2 gap-8 mb-8">
+          {/* Card 1: Introduction Assessment */}
+          <Card className="glass-card border-indigo-500/20 overflow-hidden">
+            <div className="h-1 bg-indigo-500" />
             <CardHeader>
-              <CardTitle className="text-white flex items-center">
-                <Volume2 className="w-5 h-5 mr-2 text-pink-400" />
-                Vocal Metrics
+              <CardTitle className="text-white flex items-center text-lg">
+                <Mic className="w-5 h-5 mr-3 text-indigo-400" />
+                1. Introduction Assessment
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div>
-                <div className="flex justify-between mb-1">
-                  <span className="text-slate-400">Filler Words (avg)</span>
-                  <span className={`font-medium ${avgVocalMetrics.fillerWords > 5 ? 'text-red-400' : 'text-green-400'}`}>
-                    {avgVocalMetrics.fillerWords}
-                  </span>
-                </div>
-                <Progress value={Math.max(0, 100 - avgVocalMetrics.fillerWords * 10)} />
+              <div className="flex justify-between items-end mb-1">
+                <span className="text-slate-400 text-sm">Vocal Confidence</span>
+                <span className="text-indigo-400 font-bold">{report.sectionBreakdown.section1}%</span>
               </div>
-              <div>
-                <div className="flex justify-between mb-1">
-                  <span className="text-slate-400">Speaking Pace</span>
-                  <span className="text-white font-medium">{avgVocalMetrics.wpm} WPM</span>
+              <Progress value={report.sectionBreakdown.section1} className="h-1.5" />
+              <div className="grid grid-cols-2 gap-4 mt-4 text-xs text-slate-400">
+                <div className="p-3 rounded-lg bg-slate-900/50 border border-slate-800">
+                  <p className="mb-1 uppercase font-bold text-[9px]">Pace</p>
+                  <p className="text-white">Optimal</p>
                 </div>
-                <Progress value={Math.min(100, (avgVocalMetrics.wpm / 150) * 100)} />
+                <div className="p-3 rounded-lg bg-slate-900/50 border border-slate-800">
+                  <p className="mb-1 uppercase font-bold text-[9px]">Clarity</p>
+                  <p className="text-white">High</p>
+                </div>
               </div>
             </CardContent>
           </Card>
 
-          {/* Content Scores */}
-          <Card className="glass-card">
+          {/* Card 2: Technical Knowledge */}
+          <Card className="glass-card border-pink-500/20 overflow-hidden">
+            <div className="h-1 bg-pink-500" />
             <CardHeader>
-              <CardTitle className="text-white flex items-center">
-                <TrendingUp className="w-5 h-5 mr-2 text-indigo-400" />
-                Content Scores
+              <CardTitle className="text-white flex items-center text-lg">
+                <BarChart3 className="w-5 h-5 mr-3 text-pink-400" />
+                2. Technical Knowledge
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div>
-                <div className="flex justify-between mb-1">
-                  <span className="text-slate-400">Relevance</span>
-                  <span className="text-white font-medium">{avgContentScores.relevance}%</span>
-                </div>
-                <Progress value={avgContentScores.relevance} />
+               <div className="flex justify-between items-end mb-1">
+                <span className="text-slate-400 text-sm">Technical Accuracy</span>
+                <span className="text-pink-400 font-bold">{report.sectionBreakdown.section2}%</span>
               </div>
-              <div>
-                <div className="flex justify-between mb-1">
-                  <span className="text-slate-400">Clarity</span>
-                  <span className="text-white font-medium">{avgContentScores.clarity}%</span>
-                </div>
-                <Progress value={avgContentScores.clarity} />
+              <Progress value={report.sectionBreakdown.section2} className="h-1.5 bg-slate-800" />
+              <p className="text-xs text-slate-500 leading-relaxed italic">
+                Evaluated across 10 domain-specific questions ranging from easy to medium difficulty.
+              </p>
+            </CardContent>
+          </Card>
+
+          {/* Card 3: Problem Solving */}
+          <Card className="glass-card border-emerald-500/20 overflow-hidden">
+            <div className="h-1 bg-emerald-500" />
+            <CardHeader>
+              <CardTitle className="text-white flex items-center text-lg">
+                <Target className="w-5 h-5 mr-3 text-emerald-400" />
+                3. Problem Solving
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex justify-between items-end mb-1">
+                <span className="text-slate-400 text-sm">Solution Quality</span>
+                <span className="text-emerald-400 font-bold">{report.sectionBreakdown.section3}%</span>
               </div>
-              <div>
-                <div className="flex justify-between mb-1">
-                  <span className="text-slate-400">Depth</span>
-                  <span className="text-white font-medium">{avgContentScores.depth}%</span>
-                </div>
-                <Progress value={avgContentScores.depth} />
+              <Progress value={report.sectionBreakdown.section3} className="h-1.5 bg-slate-800" />
+              <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                <span className="text-xs text-emerald-300 font-medium">Logical approach demonstrated</span>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Card 4: General Speaking */}
+          <Card className="glass-card border-amber-500/20 overflow-hidden">
+            <div className="h-1 bg-amber-500" />
+            <CardHeader>
+              <CardTitle className="text-white flex items-center text-lg">
+                <Volume2 className="w-5 h-5 mr-3 text-amber-400" />
+                4. General Speaking
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex justify-between items-end mb-1">
+                <span className="text-slate-400 text-sm">Fluency & Tone</span>
+                <span className="text-amber-400 font-bold">{report.sectionBreakdown.section4}%</span>
+              </div>
+              <Progress value={report.sectionBreakdown.section4} className="h-1.5 bg-slate-800" />
+              <div className="flex justify-between items-center bg-slate-900/50 p-3 rounded-lg border border-slate-800">
+                <span className="text-[10px] text-slate-500 uppercase font-bold">Avg Fillers</span>
+                <span className="text-white font-mono">{report.vocalSummary.averageFillerWords}</span>
               </div>
             </CardContent>
           </Card>
         </div>
 
-        {/* Feedback */}
-        <Card className="glass-card mb-8">
+        {/* Conclusion Card */}
+        <Card className="glass-card mb-8 bg-gradient-to-br from-indigo-500/5 via-purple-500/5 to-pink-500/5 border-indigo-500/20">
           <CardHeader>
-            <CardTitle className="text-white">Improvement Tips</CardTitle>
+            <CardTitle className="text-white flex items-center text-lg">
+              <Sparkles className="w-5 h-5 mr-3 text-purple-400" />
+              Overall Conclusion
+            </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="space-y-3">
-              {sessionFeedback?.feedback?.improvementTips?.map((tip: string, i: number) => (
-                <div key={i} className="flex items-start space-x-3 p-3 rounded-lg bg-slate-800/50">
-                  <CheckCircle2 className="w-5 h-5 text-green-400 mt-0.5" />
-                  <span className="text-slate-300">{tip}</span>
+            <p className="text-slate-300 leading-relaxed mb-6">
+              {session.conclusion || "Your performance shows balanced communication and technical skills. Focus on reducing filler words to appear more authoritative during complex explanations."}
+            </p>
+            <Separator className="bg-slate-800 mb-6" />
+            <h4 className="text-white font-semibold mb-4 flex items-center">
+              <Lightbulb className="w-4 h-4 mr-2 text-amber-400" />
+              Personalized Growth Areas
+            </h4>
+            <div className="grid md:grid-cols-2 gap-4">
+              {report.personalizedTips.map((tip: string, i: number) => (
+                <div key={i} className="flex items-start space-x-3 p-3 rounded-xl bg-slate-950/40 border border-slate-900">
+                  <div className="w-5 h-5 rounded-full bg-indigo-500/20 flex items-center justify-center flex-shrink-0 mt-0.5">
+                    <span className="text-[10px] text-indigo-400 font-bold">{i+1}</span>
+                  </div>
+                  <span className="text-slate-400 text-xs leading-relaxed">{tip}</span>
                 </div>
               ))}
             </div>
           </CardContent>
         </Card>
 
-        <div className="flex justify-center space-x-4">
-          <Button
-            size="lg"
-            className="bg-gradient-to-r from-pink-500 to-rose-500"
-            onClick={() => {
-              setStep('intro');
-              setCurrentQuestionIndex(0);
-              setTranscripts([]);
-              setAnalysisResults([]);
-            }}
-          >
-            <RefreshCw className="w-5 h-5 mr-2" />
-            Practice Again
+        <div className="flex justify-center space-x-6">
+          <Button size="lg" className="px-10 py-7 rounded-2xl btn-gradient font-bold text-lg hover:scale-105 active:scale-95 transition-all" onClick={() => { localStorage.removeItem('active_interview_session'); window.location.reload(); }}>
+            <RefreshCw className="w-5 h-5 mr-3" /> Practice Again
           </Button>
-          <Button
-            size="lg"
-            variant="outline"
-            onClick={() => router.push('/dashboard')}
-          >
-            Go to Dashboard
+          <Button size="lg" variant="outline" className="px-10 py-7 rounded-2xl border-slate-700 text-slate-300 font-bold text-lg hover:bg-slate-800" onClick={() => router.push('/dashboard')}>
+            Exit to Dashboard
           </Button>
         </div>
       </motion.div>
@@ -623,20 +684,20 @@ export default function MockInterviewPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950">
+    <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 selection:bg-pink-500/30">
       <Navbar />
-      
       <main className="pt-24 pb-12 px-4 sm:px-6 lg:px-8">
         <div className="max-w-7xl mx-auto">
           <AnimatePresence mode="wait">
             {step === 'intro' && renderIntro()}
-            {step === 'setup' && renderSetup()}
-            {step === 'interview' && renderInterview()}
-            {step === 'analyzing' && renderAnalyzing()}
-            {step === 'feedback' && renderFeedback()}
+            {step === 'session' && renderSession()}
+            {step === 'mini-score' && renderMiniScore()}
+            {step === 'final-report' && renderFeedback()}
           </AnimatePresence>
         </div>
       </main>
     </div>
   );
 }
+
+

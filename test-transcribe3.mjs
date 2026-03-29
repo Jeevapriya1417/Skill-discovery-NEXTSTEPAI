@@ -1,8 +1,4 @@
 import path from 'path';
-
-// Note: I renamed the import because I'm running from the root and using ESM
-// But since the project is TS, I'll just write a quick script that uses the underlying logic
-
 import { AssemblyAI } from 'assemblyai';
 import fs from 'fs';
 
@@ -16,31 +12,33 @@ async function testTranscribe() {
     return;
   }
 
+  console.log('Testing with API key:', apiKey.substring(0, 8) + '...');
   const assemblyClient = new AssemblyAI({ apiKey });
   
-  // Use one of the files from the listing
   const filename = '69be9dd122f6a1ee0fcc1a30_1774100507801_vji06f.webm';
   const fullPath = path.join(process.cwd(), 'public', 'uploads', filename);
   
-  console.log(`Testing transcription for ${fullPath}...`);
-  
+  // Test: Use speech_models (PLURAL, new API)
+  console.log('\nTest: speech_models array (new API format)...');
   try {
-    console.log(`Testing transcription with Buffer for ${fullPath}...`);
     const audioData = fs.readFileSync(fullPath);
+    // Use raw transcripts.submit + poll instead, bypassing SDK validation
+    const uploaded = await assemblyClient.files.upload(audioData);
+    console.log('Uploaded URL:', uploaded);
+    
     const transcript = await assemblyClient.transcripts.transcribe({
-      audio: audioData,
-      // Use speech_models (plural, array) - the new AssemblyAI API format
-      speech_model: 'nano' as any,
+      audio: uploaded,
+      // Force new param via type override
+      ...{ speech_models: ['universal-2'] }
     });
-
+    
     if (transcript.status === 'error') {
-      console.error('Transcription error:', transcript.error);
+      console.error('FAILED:', transcript.error);
     } else {
-      console.log('Transcription SUCCESS!');
-      console.log('Transcript:', transcript.text?.substring(0, 100));
+      console.log('SUCCESS! Transcript:', transcript.text?.substring(0, 100));
     }
   } catch (err) {
-    console.error('Fetch error:', err.message);
+    console.error('ERROR:', err.message);
   }
 }
 

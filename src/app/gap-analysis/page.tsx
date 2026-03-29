@@ -29,6 +29,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import Navbar from '@/components/Navbar';
+import RoleGuard from '@/components/RoleGuard';
 
 interface Question {
   question: string;
@@ -43,6 +44,14 @@ interface SkillGap {
 }
 
 export default function GapAnalysisPage() {
+  return (
+    <RoleGuard allowedRole="professional">
+      <GapAnalysisContent />
+    </RoleGuard>
+  );
+}
+
+function GapAnalysisContent() {
   const router = useRouter();
   const [step, setStep] = useState<'intro' | 'test' | 'evaluating' | 'results' | 'roadmap'>('intro');
   const [questions, setQuestions] = useState<Question[]>([]);

@@ -9,7 +9,7 @@ if (!GOOGLE_GEMINI_API_KEY) {
 const genAI = new GoogleGenerativeAI(GOOGLE_GEMINI_API_KEY);
 
 export async function askGemini(prompt: string): Promise<string> {
-  const models = ['gemini-2.5-flash', 'gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-pro'];
+  const models = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-flash-latest', 'gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-pro'];
   let lastError;
 
   for (const modelName of models) {
@@ -25,8 +25,9 @@ export async function askGemini(prompt: string): Promise<string> {
       if (error instanceof Error && error.message.includes('404')) {
         continue;
       }
-      // If it's a quota error, we might also want to try another model or wait
+      // If it's a quota error, wait and try the next model or retry
       if (error instanceof Error && error.message.includes('429')) {
+        await new Promise(resolve => setTimeout(resolve, 2000));
         continue;
       }
       break;

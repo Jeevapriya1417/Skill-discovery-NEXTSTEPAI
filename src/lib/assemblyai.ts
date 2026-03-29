@@ -25,8 +25,7 @@ export async function transcribeAudio(audioUrl: string): Promise<TranscriptionRe
   try {
     const transcript = await assemblyClient.transcripts.transcribe({
       audio: audioUrl,
-      word_boost: [],
-      format_text: true,
+      ...({ speech_models: ['universal-3-pro', 'universal-2'] } as any),
     });
 
     if (transcript.status === 'error') {

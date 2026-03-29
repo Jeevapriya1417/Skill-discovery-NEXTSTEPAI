@@ -228,70 +228,74 @@ export default function DashboardPage() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.1, duration: 0.5 }}
-            className="grid md:grid-cols-3 gap-6 mb-8"
+            className={`grid ${isStudent ? 'md:grid-cols-2' : 'md:grid-cols-2'} lg:grid-cols-3 gap-6 mb-8`}
           >
-            {/* Skill Discovery Card */}
-            <Card className={`glass-card hover-lift ${isStudent ? 'ring-2 ring-indigo-500/30' : ''}`}>
-              <CardHeader>
-                <div className="w-12 h-12 rounded-xl bg-gradient-to-r from-indigo-500 to-purple-500 flex items-center justify-center mb-4">
-                  <Brain className="w-6 h-6 text-white" />
-                </div>
-                <CardTitle className="text-white">Skill Discovery</CardTitle>
-              </CardHeader>
-              <CardContent>
-                {user.selectedDomain ? (
-                  <>
-                    <p className="text-slate-400 mb-6 min-h-[48px]">
-                      <span className="text-indigo-400 font-medium">✨ Soon to be a {user.selectedDomain}!</span> Keep up the great work and stay energized on your journey.
-                    </p>
-                    <div className="flex flex-col gap-2">
-                      <Button 
-                        className="w-full btn-gradient"
-                        onClick={() => router.push('/discovery?action=switch')}
-                      >
-                        Switch Domain
-                        <ArrowRight className="w-4 h-4 ml-2" />
-                      </Button>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <p className="text-slate-400 mb-6 min-h-[48px]">
-                      Discover your strengths and find your ideal career domain through AI-powered assessment.
-                    </p>
-                    <Link href="/discovery">
-                      <Button className="w-full btn-gradient">
-                        {isStudent ? 'Start Discovery' : 'Explore'}
-                        <ArrowRight className="w-4 h-4 ml-2" />
-                      </Button>
-                    </Link>
-                  </>
-                )}
-              </CardContent>
-            </Card>
+            {/* Skill Discovery Card - Student Only */}
+            {isStudent && (
+              <Card className="glass-card hover-lift ring-2 ring-indigo-500/30">
+                <CardHeader>
+                  <div className="w-12 h-12 rounded-xl bg-gradient-to-r from-indigo-500 to-purple-500 flex items-center justify-center mb-4">
+                    <Brain className="w-6 h-6 text-white" />
+                  </div>
+                  <CardTitle className="text-white">Skill Discovery</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {user.selectedDomain ? (
+                    <>
+                      <p className="text-slate-400 mb-6 min-h-[48px]">
+                        <span className="text-indigo-400 font-medium">✨ Soon to be a {user.selectedDomain}!</span> Keep up the great work and stay energized on your journey.
+                      </p>
+                      <div className="flex flex-col gap-2">
+                        <Button 
+                          className="w-full btn-gradient"
+                          onClick={() => router.push('/discovery?action=switch')}
+                        >
+                          Switch Domain
+                          <ArrowRight className="w-4 h-4 ml-2" />
+                        </Button>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-slate-400 mb-6 min-h-[48px]">
+                        Discover your strengths and find your ideal career domain through AI-powered assessment.
+                      </p>
+                      <Link href="/discovery">
+                        <Button className="w-full btn-gradient">
+                          Start Discovery
+                          <ArrowRight className="w-4 h-4 ml-2" />
+                        </Button>
+                      </Link>
+                    </>
+                  )}
+                </CardContent>
+              </Card>
+            )}
 
-            {/* Gap Analysis Card */}
-            <Card className={`glass-card hover-lift ${!isStudent ? 'ring-2 ring-purple-500/30' : ''}`}>
-              <CardHeader>
-                <div className="w-12 h-12 rounded-xl bg-gradient-to-r from-purple-500 to-pink-500 flex items-center justify-center mb-4">
-                  <TrendingUp className="w-6 h-6 text-white" />
-                </div>
-                <CardTitle className="text-white">Gap Analysis</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-slate-400 mb-6">
-                  Analyze your skill gaps and get a focused transition plan for career switchers.
-                </p>
-                <Link href="/gap-analysis">
-                  <Button className="w-full bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600">
-                    {!isStudent ? 'Start Analysis' : 'Explore'}
-                    <ArrowRight className="w-4 h-4 ml-2" />
-                  </Button>
-                </Link>
-              </CardContent>
-            </Card>
+            {/* Gap Analysis Card - Professional Only */}
+            {!isStudent && (
+              <Card className="glass-card hover-lift ring-2 ring-purple-500/30">
+                <CardHeader>
+                  <div className="w-12 h-12 rounded-xl bg-gradient-to-r from-purple-500 to-pink-500 flex items-center justify-center mb-4">
+                    <TrendingUp className="w-6 h-6 text-white" />
+                  </div>
+                  <CardTitle className="text-white">Gap Analysis</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-slate-400 mb-6 min-h-[48px]">
+                    Analyze your skill gaps and get a focused transition plan for career switchers.
+                  </p>
+                  <Link href="/gap-analysis">
+                    <Button className="w-full bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600">
+                      Start Analysis
+                      <ArrowRight className="w-4 h-4 ml-2" />
+                    </Button>
+                  </Link>
+                </CardContent>
+              </Card>
+            )}
 
-            {/* Mock Interview Card */}
+            {/* Mock Interview Card - Both Roles */}
             <Card className={`glass-card hover-lift ${!hasDomain ? 'opacity-70' : ''}`}>
               <CardHeader>
                 <div className="w-12 h-12 rounded-xl bg-gradient-to-r from-pink-500 to-rose-500 flex items-center justify-center mb-4">
@@ -300,7 +304,7 @@ export default function DashboardPage() {
                 <CardTitle className="text-white">Mock Interview</CardTitle>
               </CardHeader>
               <CardContent>
-                <p className="text-slate-400 mb-6">
+                <p className="text-slate-400 mb-6 min-h-[48px]">
                   Practice your communication skills with AI-powered vocal and content feedback.
                 </p>
                 {hasDomain ? (
@@ -312,7 +316,7 @@ export default function DashboardPage() {
                   </Link>
                 ) : (
                   <Button className="w-full" disabled variant="outline">
-                    Complete Discovery First
+                    Complete Setup First
                   </Button>
                 )}
               </CardContent>

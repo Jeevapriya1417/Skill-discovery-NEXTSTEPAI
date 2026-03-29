@@ -24,19 +24,27 @@ export async function GET(req: NextRequest) {
     const recentSessions = await InterviewSession.find({ userId })
       .sort({ createdAt: -1 })
       .limit(5)
-      .select('overallConfidence vocalMetrics contentScores createdAt');
+      .select('finalReport status createdAt');
 
     // Calculate trends
-    const sessions = recentSessions.map(session => ({
-      date: session.createdAt,
-      confidence: session.overallConfidence,
-      fillerCount: session.vocalMetrics.reduce((sum, vm) => 
-        sum + vm.fillerWordCount.total, 0
-      ) / session.vocalMetrics.length,
-      avgContentScore: session.contentScores.reduce((sum, cs) => 
-        sum + (cs.relevanceScore + cs.clarityScore + cs.depthScore) / 3, 0
-      ) / session.contentScores.length,
-    }));
+    const sessions = recentSessions.map(session => {
+      const report = session.finalReport;
+      
+      // Calculate avg content score if report exists
+      let avgContentScore = 0;
+      if (report?.contentSummary) {
+        const { relevance, clarity, depth } = report.contentSummary;
+        avgContentScore = (relevance + clarity + depth) / 3;
+      }
+
+      return {
+        date: session.createdAt,
+        confidence: report?.overallConfidenceScore || 0,
+        fillerCount: report?.vocalSummary?.averageFillerWords || 0,
+        avgContentScore,
+        status: session.status
+      };
+    });
 
     return NextResponse.json(
       { 

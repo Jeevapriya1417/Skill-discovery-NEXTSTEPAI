@@ -27,6 +27,7 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import Navbar from '@/components/Navbar';
+import RoleGuard from '@/components/RoleGuard';
 
 interface Question {
   question: string;
@@ -47,6 +48,14 @@ interface RoadmapStage {
 }
 
 export default function DiscoveryPage() {
+  return (
+    <RoleGuard allowedRole="student">
+      <DiscoveryContent />
+    </RoleGuard>
+  );
+}
+
+function DiscoveryContent() {
   const router = useRouter();
   const [user, setUser] = useState<any>(null);
   const [step, setStep] = useState<'intro' | 'test' | 'evaluating' | 'results' | 'domains' | 'roadmap'>('intro');

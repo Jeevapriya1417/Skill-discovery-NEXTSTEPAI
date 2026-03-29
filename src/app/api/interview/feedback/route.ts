@@ -8,145 +8,141 @@ export async function POST(req: NextRequest) {
   try {
     await connectDB();
     
-    const { 
-      userId, 
-      domain, 
-      questions, 
-      transcripts, 
-      vocalMetrics, 
-      contentScores 
-    } = await req.json();
+    const { sessionId } = await req.json();
 
-    if (!userId || !domain || !questions || !transcripts || !vocalMetrics || !contentScores) {
-      return NextResponse.json(
-        { error: 'Missing required fields' },
-        { status: 400 }
-      );
+    if (!sessionId) {
+      return NextResponse.json({ error: 'Session ID is required' }, { status: 400 });
     }
 
-    // Calculate overall confidence score
-    const avgContentScore = contentScores.reduce((sum: number, cs: any) => 
-      sum + (cs.relevanceScore + cs.clarityScore + cs.depthScore) / 3, 0
-    ) / contentScores.length;
+    const session = await InterviewSession.findById(sessionId);
+    if (!session) {
+      return NextResponse.json({ error: 'Session not found' }, { status: 404 });
+    }
 
-    const avgFillerCount = vocalMetrics.reduce((sum: number, vm: any) => 
-      sum + vm.fillerWordCount.total, 0
-    ) / vocalMetrics.length;
+    // 1. Prepare Bulk Context for Gemini
+    const allTranscripts = [
+      `Section 1 (Introduction): ${session.section1.transcript}`,
+      ...session.section2.map((q: any, i: number) => `Section 2, Q${i+1} (${q.question}): ${q.transcript}`),
+      ...session.section3.questions.map((q: any, i: number) => `Section 3, Q${i+1} (${q.question}): ${q.transcript}${q.code ? `\nCode provided:\n${q.code}` : ''}`),
+      `Section 4 (Topic: ${session.section4.topic}): ${session.section4.transcript}`
+    ].join('\n\n---\n\n');
 
-    const fillerPenalty = Math.min(avgFillerCount * 2, 20);
-    const overallConfidence = Math.round(Math.max(0, avgContentScore - fillerPenalty));
+    const bulkPrompt = `Task: Perform a comprehensive evaluation of the following mock interview for a ${session.domain} role.
 
-    // Generate AI feedback
-    const prompt = `Based on a mock interview session with the following metrics:
+INTERVIEW CONTEXT:
+${allTranscripts}
 
-Overall Confidence: ${overallConfidence}%
-Average Filler Words per Answer: ${Math.round(avgFillerCount)}
-Speaking Pace Issues: ${vocalMetrics.filter((vm: any) => vm.speakingPace.evaluation !== 'Optimal').length} answers
+Based on all the answers above, provide a detailed evaluation.
+1. Technical Score (0-100): Based on the accuracy and depth of technical answers (especially Section 2 and 3).
+2. Problem Solving Score (0-100): Based on the logical approach in Section 3.
+3. Content Summary:
+   - Relevance (0-100): Overall how well did they stay on topic?
+   - Clarity (0-100): Overall communication clarity.
+   - Depth (0-100): Overall thoroughness of technical explanations.
+4. Section Scores:
+   - Section 1 Score (0-100): Confidence and introduction quality.
+   - Section 2 Score (0-100): Domain knowledge accuracy.
+   - Section 3 Score (0-100): Coding/Problem solving quality.
+   - Section 4 Score (0-100): Fluency on general topics.
+5. Provide 4 personalized improvement tips.
+6. Provide a 2-3 sentence overall conclusion.
 
-Provide:
-1. Vocal feedback - specific areas to improve in speech delivery
-2. Content feedback - specific areas to improve in answer substance
-3. 3-4 actionable improvement tips
-
-Return as valid JSON:
+Return ONLY a valid JSON object:
 {
-  "vocalFeedback": "string",
-  "contentFeedback": "string",
-  "improvementTips": ["tip 1", "tip 2", "tip 3", "tip 4"]
-}
+  "technicalScore": Number,
+  "problemSolvingScore": Number,
+  "contentSummary": {
+    "relevance": Number,
+    "clarity": Number,
+    "depth": Number
+  },
+  "sectionScores": {
+    "s1": Number,
+    "s2": Number,
+    "s3": Number,
+    "s4": Number
+  },
+  "tips": ["tip1", "tip2", "tip3", "tip4"],
+  "conclusion": "string"
+}`;
 
-Only return the JSON, nothing else.`;
+    const aiResponse = await askGemini(bulkPrompt);
+    const feedbackResult = JSON.parse(sanitizeJsonResponse(aiResponse));
 
-    const aiResponse = await askGemini(prompt);
-    const cleanedResponse = sanitizeJsonResponse(aiResponse);
-    
-    let feedback;
-    try {
-      feedback = JSON.parse(cleanedResponse);
-    } catch (parseError) {
-      console.error('JSON parse error:', parseError);
-      feedback = {
-        vocalFeedback: 'Practice speaking more clearly and reduce filler words.',
-        contentFeedback: 'Provide more specific examples in your answers.',
-        improvementTips: [
-          'Reduce filler words by pausing briefly instead of saying "um"',
-          'Structure your answers with clear beginning, middle, and end',
-          'Include specific examples from your experience',
-          'Practice speaking at a moderate pace',
-        ],
-      };
-    }
+    // 2. Global Vocal Summary (Calculated locally from saved metrics)
+    const allMetrics = [
+      session.section1.vocalMetrics,
+      ...session.section2.map((q: any) => q.vocalMetrics),
+      ...session.section3.questions.map((q: any) => q.vocalMetrics),
+      session.section4.vocalMetrics
+    ].filter(m => !!m);
 
-    // Save interview session
-    const session = await InterviewSession.create({
-      userId,
-      domain,
-      questions,
-      transcripts,
-      vocalMetrics,
-      contentScores,
-      overallConfidence,
-      feedback: {
-        vocalFeedback: feedback.vocalFeedback || '',
-        contentFeedback: feedback.contentFeedback || '',
-        improvementTips: feedback.improvementTips || [],
+    const vocalConfidenceScore = Math.round((session.section1.score + session.section4.score) / 2);
+    const totalFillers = allMetrics.reduce((sum: number, m: any) => sum + m.fillerWordCount.total, 0);
+    const averageFillerWords = Math.round(totalFillers / (allMetrics.length || 1));
+    const averageWPM = Math.round(allMetrics.reduce((sum, m) => sum + m.speakingPace.wordsPerMinute, 0) / (allMetrics.length || 1));
+
+    // 3. Final Overall Score (Weighted)
+    // Vocal: 20%, Technical: 50%, Problem Solving: 30%
+    const overallInterviewScore = Math.round(
+      (vocalConfidenceScore * 0.2) + 
+      (feedbackResult.technicalScore * 0.5) + 
+      (feedbackResult.problemSolvingScore * 0.3)
+    );
+
+    // 4. Update Session Final Report
+    session.finalReport = {
+      overallConfidenceScore: vocalConfidenceScore,
+      technicalScore: feedbackResult.technicalScore,
+      problemSolvingScore: feedbackResult.problemSolvingScore,
+      vocalSummary: {
+        averageFillerWords,
+        averageWPM,
+        clarity: averageFillerWords < 3 ? 'Excellent' : averageFillerWords < 7 ? 'Good' : 'Needs Improvement'
       },
-    });
+      contentSummary: {
+        relevance: feedbackResult.contentSummary.relevance,
+        clarity: feedbackResult.contentSummary.clarity,
+        depth: feedbackResult.contentSummary.depth,
+      },
+      sectionBreakdown: {
+        section1: feedbackResult.sectionScores.s1,
+        section2: feedbackResult.sectionScores.s2,
+        section3: feedbackResult.sectionScores.s3,
+        section4: feedbackResult.sectionScores.s4
+      },
+      personalizedTips: feedbackResult.tips
+    };
 
-    // Update user progress
-    const userProgress = await UserProgress.findOne({ userId });
-    if (userProgress) {
-      userProgress.sessionHistory.push(session._id);
-      userProgress.totalSessions += 1;
-      
-      // Calculate trends (simplified)
-      const recentSessions = await InterviewSession.find({ 
-        userId 
-      }).sort({ createdAt: -1 }).limit(3);
-      
-      if (recentSessions.length >= 2) {
-        const recentFiller = recentSessions[0].vocalMetrics.reduce((sum, vm) => 
-          sum + vm.fillerWordCount.total, 0
-        ) / recentSessions[0].vocalMetrics.length;
-        
-        const prevFiller = recentSessions[1].vocalMetrics.reduce((sum, vm) => 
-          sum + vm.fillerWordCount.total, 0
-        ) / recentSessions[1].vocalMetrics.length;
-        
-        userProgress.fillerTrend = recentFiller < prevFiller ? 'Decreasing' : 
-                                   recentFiller > prevFiller ? 'Increasing' : 'Stable';
-        
-        const recentConfidence = recentSessions[0].overallConfidence;
-        const prevConfidence = recentSessions[1].overallConfidence;
-        userProgress.confidenceTrend = recentConfidence - prevConfidence;
-      }
-      
-      await userProgress.save();
+    session.status = 'completed';
+    await session.save();
+
+    // 5. Update UserProgress
+    let progress = await UserProgress.findOne({ userId: session.userId });
+    if (progress) {
+      progress.sessionHistory.push(session._id);
+      progress.totalSessions += 1;
+      progress.confidenceTrend = overallInterviewScore;
+      await progress.save();
     } else {
       await UserProgress.create({
-        userId,
+        userId: session.userId,
         sessionHistory: [session._id],
         totalSessions: 1,
+        confidenceTrend: overallInterviewScore
       });
     }
 
-    return NextResponse.json(
-      { 
-        message: 'Feedback generated successfully',
-        sessionId: session._id,
-        overallConfidence,
-        feedback: {
-          vocalFeedback: feedback.vocalFeedback || '',
-          contentFeedback: feedback.contentFeedback || '',
-          improvementTips: feedback.improvementTips || [],
-        }
-      },
-      { status: 200 }
-    );
-  } catch (error) {
+    return NextResponse.json({ 
+      message: 'Comprehensive feedback generated successfully', 
+      session,
+      conclusion: feedbackResult.conclusion
+    });
+
+  } catch (error: any) {
     console.error('Feedback generation error:', error);
     return NextResponse.json(
-      { error: 'Failed to generate feedback' },
+      { error: `Internal Server Error: ${error?.message || 'Unknown'}` },
       { status: 500 }
     );
   }

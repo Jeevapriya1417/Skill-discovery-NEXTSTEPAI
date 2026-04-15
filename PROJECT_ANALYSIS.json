@@ -1,0 +1,875 @@
+{
+  "projectMetadata": {
+    "name": "NextStep AI",
+    "version": "1.0.0",
+    "description": "AI-powered employability platform for tech college students and career switchers",
+    "purpose": "Help users discover suitable technical career domains, bridge skill gaps, and practice mock interviews with AI-powered feedback",
+    "analysisDate": "2024",
+    "targetUsers": [
+      "Tech college students seeking career direction",
+      "Career switchers transitioning to tech roles"
+    ]
+  },
+
+  "architectureOverview": {
+    "architectureType": "Full-Stack Monolithic with Microservice-Ready APIs",
+    "layers": {
+      "presentation": {
+        "technology": "React 18 + Next.js 16 (App Router)",
+        "description": "Server and client-side rendering with TypeScript",
+        "components": [
+          "Landing Page (public hero section with features)",
+          "Auth Pages (login, register)",
+          "Dashboard (user stats and activity)",
+          "Skill Discovery Flow (domain selection and assessment)",
+          "Gap Analysis Flow (career transition planning)",
+          "Mock Interview Module (interactive interview practice)",
+          "Profile Management (user settings and data)"
+        ]
+      },
+      "backend": {
+        "technology": "Next.js API Routes (Serverless recommendation)",
+        "description": "RESTful API endpoints running on Next.js server",
+        "pattern": "API Routes with endpoint-based organization"
+      },
+      "database": {
+        "technology": "MongoDB + Mongoose",
+        "description": "NoSQL document-based database with schema validation",
+        "connection": "Connection pooling with caching strategy implemented"
+      },
+      "aiServices": {
+        "services": [
+          {
+            "name": "Google Gemini AI",
+            "purpose": "Question generation, domain classification, assessment evaluation",
+            "fallback": "Multiple model versions for redundancy (2.5-flash, 2.0-flash, pro, flash-latest)"
+          },
+          {
+            "name": "AssemblyAI",
+            "purpose": "Audio transcription for interview responses",
+            "features": "Word-level timing, confidence scores, filler word detection"
+          }
+        ]
+      }
+    }
+  },
+
+  "dataModels": {
+    "User": {
+      "fields": {
+        "authentication": ["email", "password (bcrypted)", "name"],
+        "profile": ["userType (student|professional)", "collegeName", "yearOfStudy"],
+        "skills": ["languagesKnown (array)", "selfRatedSkillLevel"],
+        "careerInfo": ["currentRole", "yearsOfExperience", "technologiesCurrentlyWorkingWith", "targetRole", "selectedDomain"]
+      },
+      "relationships": ["Assessment", "InterviewSession", "GapAnalysis", "Recommendation", "Roadmap", "UserProgress"],
+      "purpose": "Central user management with comprehensive profile data"
+    },
+    "Assessment": {
+      "fields": {
+        "core": ["userId", "questions (array)", "answers (array)", "results (detailed feedback)"],
+        "evaluation": ["scores (total, currentRoleScore, targetRoleScore)", "evaluatedLevel", "strengths (array)", "weaknesses (array)"]
+      },
+      "subStructures": {
+        "Question": ["question (text)", "type (mcq|coding)", "options", "correctAnswer", "tag"],
+        "Result": ["question", "type", "userAnswer", "correctAnswer", "sampleSolution", "isCorrect", "feedback"]
+      },
+      "purpose": "Stores proficiency test results and skill evaluations"
+    },
+    "GapAnalysis": {
+      "fields": {
+        "core": ["userId", "currentRole", "targetRole"],
+        "analysis": ["transferableSkills (array)", "skillGaps (array with severity)", "readinessPercentage"]
+      },
+      "subStructures": {
+        "SkillGap": ["skill (text)", "severity (Low|Medium|High)"]
+      },
+      "purpose": "Analyzes skill gaps for career switchers and professionals"
+    },
+    "InterviewSession": {
+      "fields": {
+        "meta": ["userId", "domain", "status (in-progress|completed)", "currentSection (1-4)", "currentQuestionIndex"],
+        "sections": {
+          "section1": ["transcript (introduction)", "vocalMetrics", "score"],
+          "section2": ["10 domain-specific questions with vocal and content metrics"],
+          "section3": ["2 questions (3A=Coding or 3B=Situational)"],
+          "section4": ["free-speaking topic with vocal metrics"]
+        },
+        "finalReport": ["overallConfidenceScore", "technicalScore", "problemSolvingScore", "vocalSummary", "contentSummary"]
+      },
+      "purpose": "Comprehensive mock interview tracking with multi-section structure"
+    },
+    "Roadmap": {
+      "fields": {
+        "core": ["userId", "type (discovery|gap)", "domain"],
+        "content": ["alreadyCovered (array)", "toLearn (array of stages)", "totalEstimatedTime"]
+      },
+      "subStructures": {
+        "RoadmapStage": ["stage (number)", "topic", "estimatedDuration", "learningLinks (title+url)"]
+      },
+      "purpose": "Personalized learning roadmaps based on assessment results"
+    },
+    "Recommendation": {
+      "fields": {
+        "core": ["userId", "suggestedDomains (array)"],
+        "content": ["matchReasons (array)"]
+      },
+      "subStructures": {
+        "SuggestedDomain": ["domain (text)", "matchReason (explanation)"]
+      },
+      "purpose": "AI-generated domain recommendations based on user profile and assessment"
+    },
+    "UserProgress": {
+      "fields": {
+        "tracking": ["userId", "sessionHistory (array of InterviewSession IDs)", "totalSessions"],
+        "trends": ["fillerTrend (Decreasing|Stable|Increasing)", "paceTrend (Improving|Stable|Needs Work)", "confidenceTrend (number)"]
+      },
+      "purpose": "Tracks user improvement over time with trend analysis"
+    }
+  },
+
+  "moduleStructure": {
+    "module1_SkillDiscovery": {
+      "targetUsers": "Tech college students",
+      "stages": [
+        {
+          "stage": 1,
+          "name": "User Registration & Profile Setup",
+          "endpoint": "/api/auth/register",
+          "inputs": ["name", "email", "password", "collegeName", "yearOfStudy", "programmingLanguages", "selfRatedSkillLevel"],
+          "outputs": "User document created in MongoDB"
+        },
+        {
+          "stage": 2,
+          "name": "Proficiency Test Generation",
+          "endpoint": "/api/discovery/generate-test",
+          "process": "Gemini generates MCQ/coding questions based on languages and skill level",
+          "outputs": "Assessment document with questions"
+        },
+        {
+          "stage": 3,
+          "name": "Assessment Evaluation",
+          "endpoint": "/api/discovery/evaluate",
+          "process": "Gemini evaluates answers and assigns strengths/weaknesses",
+          "outputs": "Assessment results with scores and analysis"
+        },
+        {
+          "stage": 4,
+          "name": "Domain Recommendation",
+          "endpoint": "/api/discovery/domains",
+          "process": "Gemini recommends 4 suitable domains based on profile and assessment",
+          "outputs": "Recommendation document with domain suggestions"
+        },
+        {
+          "stage": 5,
+          "name": "Roadmap Generation",
+          "endpoint": "/api/discovery/roadmap",
+          "process": "Creates personalized learning roadmap for selected domain",
+          "outputs": "Roadmap document with stages and estimated duration"
+        }
+      ],
+      "workflow": "Registration → Assessment → Domain Selection → Recommendations → Roadmap"
+    },
+
+    "module2_GapAnalysis": {
+      "targetUsers": "Career switchers and professionals",
+      "stages": [
+        {
+          "stage": 1,
+          "name": "Role Selection",
+          "endpoint": "/api/gap/select-role",
+          "inputs": ["currentRole", "yearsOfExperience", "technologiesCurrentlyWorking", "targetRole"],
+          "outputs": "User profile updated with career information"
+        },
+        {
+          "stage": 2,
+          "name": "Skill Gap Analysis",
+          "endpoint": "/api/gap/evaluate",
+          "process": "Gemini analyzes transferable skills and gaps between current and target role",
+          "outputs": "GapAnalysis document with skills breakdown"
+        },
+        {
+          "stage": 3,
+          "name": "Transition Roadmap",
+          "endpoint": "/api/gap/roadmap",
+          "process": "Generates focused learning path to bridge identified gaps",
+          "outputs": "Gap-specific Roadmap document"
+        },
+        {
+          "stage": 4,
+          "name": "Results Dashboard",
+          "endpoint": "/api/gap/results",
+          "outputs": "Comprehensive analysis summary"
+        }
+      ],
+      "workflow": "Current Role Assessment → Gap Identification → Transition Planning → Results"
+    },
+
+    "module3_MockInterview": {
+      "targetUsers": "All users preparing for interviews",
+      "structure": {
+        "section1": {
+          "name": "Introduction",
+          "duration": "30-45 seconds",
+          "content": "Tell us about yourself",
+          "evaluation": "Vocal metrics only (filler words, pace, pauses)"
+        },
+        "section2": {
+          "name": "Domain Questions",
+          "questions": 10,
+          "content": "Domain-specific fundamental knowledge",
+          "evaluation": "Both vocal metrics and content scoring"
+        },
+        "section3": {
+          "name": "Technical/Situational",
+          "questions": 2,
+          "variations": ["3A (Coding) for technical roles", "3B (Situational) for non-technical roles"],
+          "evaluation": "Content quality with domain-specific scoring"
+        },
+        "section4": {
+          "name": "General Speaking",
+          "duration": "1 minute",
+          "content": "Non-technical topic",
+          "evaluation": "Vocal and delivery metrics"
+        }
+      },
+      "endpoints": {
+        "start": "/api/interview/start",
+        "upload": "/api/interview/upload-audio",
+        "transcribe": "/api/interview/transcribe",
+        "analyze": "/api/interview/analyze",
+        "feedback": "/api/interview/feedback",
+        "progress": "/api/interview/progress"
+      },
+      "workflow": "Session Creation → Question Generation → Audio Recording → Transcription → Analysis → Feedback"
+    },
+
+    "module4_UserManagement": {
+      "endpoints": [
+        {
+          "path": "/api/auth/login",
+          "method": "POST",
+          "purpose": "User authentication with email and password"
+        },
+        {
+          "path": "/api/auth/register",
+          "method": "POST",
+          "purpose": "New user registration"
+        },
+        {
+          "path": "/api/auth/profile",
+          "method": "GET",
+          "purpose": "Retrieve user profile"
+        },
+        {
+          "path": "/api/user/profile",
+          "method": "GET",
+          "purpose": "Get complete user profile"
+        },
+        {
+          "path": "/api/user/update-roles",
+          "method": "PUT",
+          "purpose": "Update career roles and preferences"
+        }
+      ]
+    }
+  },
+
+  "apiEndpoints": {
+    "authentication": {
+      "POST /api/auth/register": {
+        "description": "Register new user",
+        "requestBody": {
+          "name": "string",
+          "email": "string (unique)",
+          "password": "string (6+ chars)",
+          "userType": "student|professional",
+          "collegeName": "string (optional)",
+          "programmingLanguages": "string[]"
+        },
+        "response": "User document with _id"
+      },
+      "POST /api/auth/login": {
+        "description": "User login and authentication",
+        "requestBody": {
+          "email": "string",
+          "password": "string"
+        },
+        "response": "User profile without password"
+      },
+      "GET /api/auth/profile": {
+        "description": "Fetch current user profile",
+        "queryParams": "userId",
+        "response": "Complete user profile"
+      }
+    },
+    "skillDiscovery": {
+      "GET /api/discovery/domains": {
+        "description": "Get AI-recommended domains based on profile",
+        "queryParams": "userId",
+        "response": "Array of 4 suggested domains with match reasons"
+      },
+      "POST /api/discovery/generate-test": {
+        "description": "Generate proficiency test questions",
+        "requestBody": {
+          "userId": "string",
+          "languages": "string[]",
+          "skillLevel": "string"
+        },
+        "response": "Assessment with generated questions"
+      },
+      "POST /api/discovery/evaluate": {
+        "description": "Evaluate assessment answers",
+        "requestBody": {
+          "userId": "string",
+          "answers": "string[]",
+          "assessmentId": "string"
+        },
+        "response": "Assessment results with scores and analysis"
+      },
+      "GET /api/discovery/roadmap": {
+        "description": "Generate learning roadmap",
+        "queryParams": "userId, domain",
+        "response": "Roadmap with stages and resources"
+      }
+    },
+    "gapAnalysis": {
+      "GET /api/gap/select-role": {
+        "description": "Set gap analysis parameters",
+        "queryParams": "userId",
+        "requestBody": {
+          "currentRole": "string",
+          "targetRole": "string",
+          "yearsOfExperience": "number"
+        },
+        "response": "User profile updated"
+      },
+      "POST /api/gap/evaluate": {
+        "description": "Analyze skill gaps",
+        "requestBody": "userId, currentRole, targetRole",
+        "response": "GapAnalysis with transferable skills and gaps"
+      },
+      "GET /api/gap/roadmap": {
+        "description": "Create gap-specific roadmap",
+        "queryParams": "userId",
+        "response": "Focused learning roadmap"
+      },
+      "GET /api/gap/results": {
+        "description": "Fetch gap analysis results",
+        "queryParams": "userId",
+        "response": "Complete gap analysis summary"
+      }
+    },
+    "mockInterview": {
+      "POST /api/interview/start": {
+        "description": "Initialize new interview session",
+        "requestBody": "userId",
+        "process": "Generates 4 sections of interview questions automatically",
+        "response": "InterviewSession with all questions generated"
+      },
+      "POST /api/interview/upload-audio": {
+        "description": "Upload audio file to server",
+        "requestBody": "audio file (multipart)",
+        "response": "File path and metadata"
+      },
+      "POST /api/interview/transcribe": {
+        "description": "Transcribe audio using AssemblyAI",
+        "requestBody": "audioUrl",
+        "response": "Transcript with word-level timing and confidence"
+      },
+      "POST /api/interview/analyze": {
+        "description": "Analyze vocal and content metrics",
+        "requestBody": "transcript, words, question, durationSeconds",
+        "response": "VocalMetrics and ContentScores"
+      },
+      "POST /api/interview/feedback": {
+        "description": "Generate AI feedback on response",
+        "requestBody": "sessionId, transcript, question",
+        "response": "Detailed feedback with suggestions"
+      },
+      "GET /api/interview/progress": {
+        "description": "Get current session progress",
+        "queryParams": "userId",
+        "response": "InterviewSession with current status"
+      }
+    }
+  },
+
+  "integrationDetails": {
+    "googleGemini": {
+      "purpose": "AI-powered question generation and evaluation",
+      "capabilities": [
+        "Generate personalized MCQ and coding questions",
+        "Domain classification and matching",
+        "Assessment answer evaluation",
+        "Feedback generation on interview responses",
+        "Strength and weakness identification",
+        "Skill gap analysis"
+      ],
+      "fallbackStrategy": "Multiple model versions to handle API quotas",
+      "models": [
+        "gemini-2.5-flash",
+        "gemini-2.0-flash",
+        "gemini-flash-latest",
+        "gemini-1.5-flash",
+        "gemini-1.5-pro",
+        "gemini-pro"
+      ],
+      "errorHandling": "Retry with next model on 404 or quota errors (429)"
+    },
+    "assemblyAI": {
+      "purpose": "Audio transcription for interview recordings",
+      "capabilities": [
+        "Speech-to-text conversion",
+        "Word-level timing and confidence scores",
+        "Multiple speech model versions for accuracy"
+      ],
+      "features": [
+        "Universal-3-pro model support",
+        "Filler word detection in transcripts",
+        "Confidence scoring per word",
+        "Pause analysis capability"
+      ],
+      "usage": "Transcribe mock interview audio responses"
+    },
+    "mongooseODM": {
+      "purpose": "Database schema validation and CRUD operations",
+      "models": [
+        "User (authentication and profile)",
+        "Assessment (proficiency tests)",
+        "GapAnalysis (career transition)",
+        "InterviewSession (mock interview tracking)",
+        "Roadmap (learning paths)",
+        "Recommendation (domain suggestions)",
+        "UserProgress (trend tracking)"
+      ],
+      "connectionStrategy": "Connection pooling with cached connection to prevent cold starts"
+    },
+    "nextAuth": {
+      "status": "Installed but implementation detected in manual auth routes",
+      "recommendation": "Could be used for session management in future"
+    }
+  },
+
+  "dataFlow": {
+    "skillDiscoveryFlow": {
+      "step1": "User registers with profile data (languages, skill level, college)",
+      "step2": "Frontend calls /api/discovery/generate-test with user profile",
+      "step3": "Backend uses Gemini to generate customized assessment questions",
+      "step4": "User takes assessment via frontend UI",
+      "step5": "Answers submitted to /api/discovery/evaluate",
+      "step6": "Gemini evaluates answers, returns strengths and weaknesses",
+      "step7": "Assessment scores stored in MongoDB",
+      "step8": "Frontend requests domain recommendations via /api/discovery/domains",
+      "step9": "Gemini analyzes profile + assessment → suggests 4 domains",
+      "step10": "User selects domain → roadmap generated",
+      "step11": "Learning roadmap with stages and resources returned"
+    },
+
+    "mockInterviewFlow": {
+      "step1": "User clicks 'Start Mock Interview'",
+      "step2": "Frontend calls POST /api/interview/start",
+      "step3": "Backend determines domain type (Coding vs Non-Coding)",
+      "step4": "Gemini generates all 4 sections: 10 + 2 + 1 practice topic",
+      "step5": "InterviewSession created and stored in MongoDB",
+      "step6": "User navigates through sections recording audio",
+      "step7": "Each audio response uploaded → /api/interview/upload-audio",
+      "step8": "File stored in public/uploads directory",
+      "step9": "Frontend sends audioUrl to /api/interview/transcribe",
+      "step10": "AssemblyAI transcribes audio with word-level timing",
+      "step11": "Transcript + words sent to /api/interview/analyze",
+      "step12": "Vocal metrics calculated (fillers, pace, pauses)",
+      "step13": "AI evaluates content relevance, clarity, depth",
+      "step14": "Feedback generated and displayed to user",
+      "step15": "Results aggregated in InterviewSession.finalReport"
+    },
+
+    "userProgressTracking": {
+      "mechanism": "UserProgress document stores sessionHistory array",
+      "metrics": "Filler trends, pace trends, confidence trends over time",
+      "display": "Dashboard shows improvement over multiple sessions"
+    }
+  },
+
+  "technicalImplementationDetails": {
+    "passwordSecurity": {
+      "library": "bcryptjs",
+      "implementation": "Password hashed before storage",
+      "comparison": "bcrypt.compare() used during login"
+    },
+    "audioProcessing": {
+      "upload": "Multipart form data to /api/interview/upload-audio",
+      "storage": "public/uploads directory (stateless file system recommended for production)",
+      "transcription": "AssemblyAI API called with local file path",
+      "filler_detection": "Manual post-processing of transcript"
+    },
+    "jsonSanitization": {
+      "method": "Remove markdown code blocks from Gemini responses",
+      "handling": "Graceful fallback if JSON parsing fails"
+    },
+    "errorHandling": {
+      "approach": "Try-catch blocks with specific error messages",
+      "logging": "Console logging for debugging (should upgrade to structured logging)"
+    }
+  },
+
+  "frontendStructure": {
+    "pages": {
+      "/ (public)": "Landing page with features and CTA",
+      "/login": "User authentication",
+      "/register": "New user sign-up",
+      "/dashboard": "User hub with stats and shortcuts",
+      "/discovery": "Skill discovery workflow",
+      "/gap-analysis": "Gap analysis workflow",
+      "/mock-interview": "Mock interview environment",
+      "/profile": "User profile and settings"
+    },
+    "components": {
+      "ui": "Radix UI components (Button, Card, Input, Dialog, etc.)",
+      "features": "Navbar, RoleGuard (auth protection), custom UI build with Tailwind"
+    },
+    "styling": {
+      "framework": "Tailwind CSS + PostCSS",
+      "animations": "Framer Motion for interactive elements",
+      "design": "Dark theme with gradient accents"
+    }
+  },
+
+  "strengths": {
+    "s1": {
+      "category": "Comprehensive User Journey",
+      "description": "Clear flow from registration → assessment → recommendations → practice, with two distinct paths for students and professionals"
+    },
+    "s2": {
+      "category": "Multi-dimensional Evaluation",
+      "description": "Mock interviews evaluate both technical knowledge AND soft skills (vocal metrics: filler words, pace, pauses)"
+    },
+    "s3": {
+      "category": "AI-Powered Personalization",
+      "description": "Every component uses Gemini for smart question generation and evaluation based on user profile"
+    },
+    "s4": {
+      "category": "Production-Grade Security",
+      "description": "Password hashing with bcryptjs, CORS configuration, proper validation"
+    },
+    "s5": {
+      "category": "Real-time Feedback Loop",
+      "description": "Users get immediate feedback on assessments and interview performance"
+    },
+    "s6": {
+      "category": "Progress Tracking",
+      "description": "UserProgress model tracks trends to show user improvement over time"
+    },
+    "s7": {
+      "category": "Resilient AI Integration",
+      "description": "Fallback to multiple Gemini models if one fails/quota exhausted"
+    }
+  },
+
+  "weaknesses": {
+    "w1": {
+      "category": "File Storage Architecture",
+      "issue": "Audio files stored in public/uploads (not scalable for production)",
+      "impact": "Cannot handle multiple concurrent users, no cloud storage",
+      "severity": "High"
+    },
+    "w2": {
+      "category": "Error Logging",
+      "issue": "Console.log used instead of structured logging",
+      "impact": "Difficult to trace issues in production, poor debugging",
+      "severity": "Medium"
+    },
+    "w3": {
+      "category": "Input Validation",
+      "issue": "Minimal validation on API inputs",
+      "impact": "Potential injection attacks or unexpected data formats",
+      "severity": "High"
+    },
+    "w4": {
+      "category": "Rate Limiting",
+      "issue": "No rate limiting on API endpoints",
+      "impact": "Vulnerability to DDoS attacks and excessive Gemini API calls",
+      "severity": "High"
+    },
+    "w5": {
+      "category": "Email Verification",
+      "issue": "No email verification during registration",
+      "impact": "Invalid/spam email addresses can register",
+      "severity": "Medium"
+    },
+    "w6": {
+      "category": "Session Management",
+      "issue": "NextAuth installed but not used; manual token management could be improved",
+      "impact": "Security vulnerabilities in custom auth",
+      "severity": "Medium"
+    },
+    "w7": {
+      "category": "Database Scalability",
+      "issue": "No indexing strategy documented, no query optimization",
+      "impact": "Performance degradation with large datasets",
+      "severity": "Medium"
+    },
+    "w8": {
+      "category": "Frontend State Management",
+      "issue": "No Redux/Context API for global state (useState everywhere)",
+      "impact": "Prop drilling, difficult to scale, potential performance issues",
+      "severity": "Low-Medium"
+    },
+    "w9": {
+      "category": "API Documentation",
+      "issue": "No OpenAPI/Swagger documentation",
+      "impact": "Difficult for external developers or mobile app integration",
+      "severity": "Low"
+    },
+    "w10": {
+      "category": "No Testing Framework",
+      "issue": "No unit/integration/e2e tests detected",
+      "impact": "Regression risks, difficult to maintain code quality",
+      "severity": "High"
+    }
+  },
+
+  "recommendations": {
+    "priority1_Critical": [
+      {
+        "id": "R1",
+        "title": "Migrate to Cloud Storage (AWS S3 / Google Cloud Storage)",
+        "description": "Replace public/uploads with cloud storage for audio files. Better for scalability, concurrency, and production deployment.",
+        "implementation": "Use AWS SDK or similar to upload files to S3 bucket with signed URLs",
+        "timeEstimate": "2-3 days",
+        "impact": "Enables horizontal scaling, production-ready infrastructure"
+      },
+      {
+        "id": "R2",
+        "title": "Implement Input Validation & Sanitization",
+        "description": "Add comprehensive validation on all API endpoints using libraries like Zod or Joi",
+        "implementation": "Create middleware for validation, validate email format, password requirements, array lengths",
+        "timeEstimate": "2 days",
+        "impact": "Prevents injection attacks and data integrity issues"
+      },
+      {
+        "id": "R3",
+        "title": "Add Rate Limiting & API Quota Management",
+        "description": "Implement rate limiting per user/IP to prevent abuse and control Gemini API costs",
+        "implementation": "Use packages like express-rate-limit or implement custom middleware",
+        "timeEstimate": "1-2 days",
+        "impact": "Protects against DDoS, controls API costs"
+      },
+      {
+        "id": "R4",
+        "title": "Add Comprehensive Test Coverage",
+        "description": "Implement unit tests (Jest), integration tests, and E2E tests (Playwright/Cypress)",
+        "implementation": "Start with critical paths: auth, assessment evaluation, roadmap generation",
+        "timeEstimate": "1-2 weeks",
+        "impact": "Catches regressions early, improves code quality"
+      }
+    ],
+
+    "priority2_Important": [
+      {
+        "id": "R5",
+        "title": "Implement Structured Logging",
+        "description": "Replace console.log with Winston, Pino, or similar structured logging",
+        "implementation": "Create logger service, use across all routes and services",
+        "timeEstimate": "1-2 days",
+        "impact": "Better debugging, easier production monitoring"
+      },
+      {
+        "id": "R6",
+        "title": "Add Email Verification Flow",
+        "description": "Send verification email on registration, require click-through before account activation",
+        "implementation": "Use email service (SendGrid, Resend) with JWT tokens",
+        "timeEstimate": "2-3 days",
+        "impact": "Better data quality, prevents spam accounts"
+      },
+      {
+        "id": "R7",
+        "title": "Migrate to NextAuth.js for Session Management",
+        "description": "Use installed NextAuth.js library properly instead of manual token handling",
+        "implementation": "Configure NextAuth providers, implement JWT strategy",
+        "timeEstimate": "2-3 days",
+        "impact": "Industry-standard auth, better security"
+      },
+      {
+        "id": "R8",
+        "title": "Add Database Indexing & Query Optimization",
+        "description": "Create indexes on frequently queried fields (userId, email, domain)",
+        "implementation": "Add Mongoose indexes, run performance tests",
+        "timeEstimate": "1-2 days",
+        "impact": "Faster queries, better performance at scale"
+      },
+      {
+        "id": "R9",
+        "title": "Implement OpenAPI/Swagger Documentation",
+        "description": "Document all API endpoints with Swagger for easier integration and debugging",
+        "implementation": "Use swagger-jsdoc and swagger-ui-express",
+        "timeEstimate": "2-3 days",
+        "impact": "Better developer experience, easier API debugging"
+      }
+    ],
+
+    "priority3_Enhancement": [
+      {
+        "id": "R10",
+        "title": "Add Global State Management",
+        "description": "Implement Context API or Zustand for global user/session state instead of useState everywhere",
+        "implementation": "Create context providers for auth, user, interview session",
+        "timeEstimate": "2-3 days",
+        "impact": "Cleaner code, easier prop management, better re-render optimization"
+      },
+      {
+        "id": "R11",
+        "title": "Implement Caching Strategy",
+        "description": "Cache Gemini responses (domain recommendations, roadmaps) to reduce API calls and improve performance",
+        "implementation": "Use Redis or MongoDB TTL indexes for cached data",
+        "timeEstimate": "2-3 days",
+        "impact": "Reduced API costs, faster response times"
+      },
+      {
+        "id": "R12",
+        "title": "Add Analytics & Performance Monitoring",
+        "description": "Implement tools like Sentry for error tracking, Google Analytics for user analytics",
+        "implementation": "Integrate Sentry for error tracking, GA for usage analytics",
+        "timeEstimate": "1-2 days",
+        "impact": "Better visibility into user behavior and system health"
+      },
+      {
+        "id": "R13",
+        "title": "Implement Webhook System",
+        "description": "Add webhooks for long-running processes (Gemini responses, transcription completion)",
+        "implementation": "Create webhook event emitter, store webhook history",
+        "timeEstimate": "2-3 days",
+        "impact": "Better async support, reduced polling"
+      },
+      {
+        "id": "R14",
+        "title": "Add Mobile App (React Native / Flutter)",
+        "description": "Extend platform to mobile users for on-the-go interview practice",
+        "implementation": "Create dedicated mobile app, ensure API compatibility",
+        "timeEstimate": "2-4 weeks",
+        "impact": "Expands user base, higher engagement"
+      }
+    ],
+
+    "priority4_Future": [
+      {
+        "id": "R15",
+        "title": "Implement Microservices Architecture",
+        "description": "Separate concerns: Auth Service, Assessment Service, Interview Service, AI Service",
+        "implementation": "Use NestJS or similar, implement message queue (RabbitMQ/Kafka)",
+        "timeEstimate": "4-6 weeks",
+        "impact": "Better scalability, independent deployment"
+      },
+      {
+        "id": "R16",
+        "title": "Add Real-time Collaboration",
+        "description": "Allow mentors to co-interview with students, provide live feedback",
+        "implementation": "Use WebSockets (Socket.io), implement mentorship system",
+        "timeEstimate": "2-3 weeks",
+        "impact": "New revenue model, higher user engagement"
+      },
+      {
+        "id": "R17",
+        "title": "Implement Video Interview Support",
+        "description": "Add video recording with facial expression and body language analysis",
+        "implementation": "Use WebRTC, integrate video analysis AI",
+        "timeEstimate": "3-4 weeks",
+        "impact": "More realistic interview simulation, better feedback"
+      },
+      {
+        "id": "R18",
+        "title": "Add Gamification Elements",
+        "description": "Badges, leaderboards, streak tracking to improve engagement",
+        "implementation": "Create gamification system, implement point/badge logic",
+        "timeEstimate": "1-2 weeks",
+        "impact": "Higher user retention, better engagement metrics"
+      }
+    ]
+  },
+
+  "expertAnalysis": {
+    "overallAssessment": "NextStep AI is a well-architected MVP with strong product-market fit for its target audience. The platform successfully combines skill assessment, career guidance, and interview practice with intelligent AI-powered feedback. The use of Gemini for personalized question generation and AssemblyAI for comprehensive vocal analysis shows thoughtful product design. However, there are critical infrastructure and security gaps that must be addressed before production scaling.",
+
+    "productStrengths": "The dual-path approach (Skill Discovery for students, Gap Analysis for professionals) demonstrates understanding of diverse user needs. The mock interview module is particularly innovative with its 4-section structure evaluating both technical knowledge and soft skills simultaneously. The multi-dimensional feedback (vocal metrics + content evaluation) creates a holistic learning experience that traditional practice platforms don't offer.",
+
+    "architectureQuality": "The architecture is modular and maintainable with clear separation of concerns. MongoDB choice is appropriate for flexible data models. The API route organization by feature (auth, discovery, gap, interview) is clean and scalable. However, the serverless/stateless approach conflicts with current file storage mechanism. A migration to serverless with cloud storage would make this truly cloud-native.",
+
+    "scalabilityConsiderations": "Current implementation can handle moderate load (~1000s of DAU) but has bottlenecks: (1) local file storage for audio, (2) no caching layer, (3) lack of database indexes, (4) no request throttling. These must be addressed before significant growth. Recommended scalability path: AWS/GCP deployment, S3 storage, Redis caching, MongoDB Atlas.",
+
+    "securityPosture": "Authentication and password security are solid (bcrypt). However, missing: rate limiting (critical for API abuse prevention), input validation (injection vulnerability), email verification (spam prevention), CORS optimization (overly permissive currently). Authentication should migrate to NextAuth.js for OAuth support and better token management.",
+
+    "userExperienceAssessment": "The frontend is polished with modern design (Tailwind, Framer Motion). Navigation between modules is intuitive. However, no offline support, no progress persistence if browser closes, no mobile optimization. The interview module would benefit from real-time feedback visualization.",
+
+    "costConsiderations": "Major cost drivers: Gemini API calls (high volume of question generation), AssemblyAI transcription (costly per minute), MongoDB storage, AWS infrastructure (after migration). Recommend: implement response caching, batch non-critical operations, optimize API calls, consider local models for non-critical tasks.",
+
+    "developmentMaturity": "Codebase shows good practices (TypeScript, component modularity, error handling). Missing: testing framework, CI/CD pipeline, deployment automation, monitoring setup, documentation. Suggest: add GitHub Actions CI/CD, pre-commit linting, automated testing on PRs.",
+
+    "businessRecommendations": [
+      "Prioritize cloud migration and security hardening for production launch",
+      "Consider freemium model: free assessment, paid for roadmap + interviews",
+      "Implement referral program to leverage existing user base for growth",
+      "Partner with educational institutions for B2B expansion",
+      "Add corporate interview prep bundles as B2B product line"
+    ],
+
+    "technicalDebtAssessment": "Moderate technical debt. Most impactful items to address: (1) file storage migration, (2) add testing framework, (3) implement structured logging. Estimated effort to production-ready: 3-4 weeks with dedicated team.",
+
+    "comparisonToCompetitors": "NextStep AI differentiates through: (1) AI-powered domain discovery (not just practice), (2) gap analysis for career transitions, (3) comprehensive vocal analysis, (4) free/affordable pricing model. Competitors (InterviewBit, LeetCode, Pramp) focus more on algorithms/coding; NextStep targets career discovery which is underserved.",
+
+    "suggestedRoadmap": {
+      "phase1_1month": "Security hardening, cloud migration, test implementation",
+      "phase2_2months": "Additional assessment types, mentor system, performance optimization",
+      "phase3_3months": "Mobile app launch, video interview support, corporate partnerships",
+      "phase4_ongoing": "Microservices, real-time collaboration, gamification"
+    },
+
+    "aiModelOptimization": "Consider fine-tuning Gemini prompts for: (1) domain classification (currently generic), (2) assessment evaluation (should penalize vague answers), (3) feedback generation (should be more constructive). Implement A/B testing of prompt variations to measure improvement in user outcomes.",
+
+    "finalRating": {
+      "productMarketFit": "9/10 - Clear value proposition for target users",
+      "codeQuality": "7/10 - Good structure, but missing tests and best practices in places",
+      "scalability": "5/10 - MVP-ready but needs refactoring for scale",
+      "security": "6/10 - Basic security good, but missing critical protections",
+      "overallMaturity": "6.5/10 - Strong MVP, requires work before production at scale"
+    }
+  },
+
+  "implementationPriority": [
+    {
+      "phase": "Immediate (Week 1-2)",
+      "tasks": [
+        "Implement input validation on all endpoints",
+        "Add rate limiting middleware",
+        "Set up error logging system",
+        "Create API documentation"
+      ]
+    },
+    {
+      "phase": "Short-term (Week 3-4)",
+      "tasks": [
+        "Migrate audio storage to cloud (S3)",
+        "Implement email verification",
+        "Set up CI/CD pipeline",
+        "Add unit tests for critical paths"
+      ]
+    },
+    {
+      "phase": "Medium-term (Month 2)",
+      "tasks": [
+        "Migrate auth to NextAuth.js",
+        "Implement caching layer",
+        "Add database indexes",
+        "Complete test coverage"
+      ]
+    },
+    {
+      "phase": "Long-term (Month 3+)",
+      "tasks": [
+        "Microservices architecture refactor",
+        "Mobile app development",
+        "Real-time features",
+        "Advanced analytics"
+      ]
+    }
+  ]
+}

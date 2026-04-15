@@ -3,6 +3,8 @@ import connectDB from '@/lib/mongodb';
 import { transcribeAudio } from '@/lib/assemblyai';
 import InterviewSession from '@/models/InterviewSession';
 import path from 'path';
+import { auth } from '@/lib/auth';
+import { headers } from 'next/headers';
 
 function calculateVocalMetrics(transcript: string, durationSeconds: number) {
   const words = transcript.toLowerCase().split(/\s+/).filter(w => w.length > 0);
@@ -50,6 +52,18 @@ function calculateVocalMetrics(transcript: string, durationSeconds: number) {
 export async function POST(req: NextRequest) {
   try {
     await connectDB();
+    
+    const authSession = await auth.api.getSession({
+      headers: await headers(),
+    });
+
+    if (!authSession) {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
     const { sessionId, audioUrl, section, questionIndex, durationSeconds, code } = await req.json();
 
     if (!sessionId || (!audioUrl && !code) || !section) {
@@ -59,6 +73,14 @@ export async function POST(req: NextRequest) {
     const session = await InterviewSession.findById(sessionId);
     if (!session) {
       return NextResponse.json({ error: 'Session not found' }, { status: 404 });
+    }
+
+    // Security check: Ensure this session belongs to the logged-in user
+    if (session.userId.toString() !== authSession.user.id) {
+      return NextResponse.json(
+        { error: 'Unauthorized access to session' },
+        { status: 403 }
+      );
     }
 
     // 1. Transcription (Immediate)

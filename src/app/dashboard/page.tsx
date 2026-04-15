@@ -29,7 +29,7 @@ interface RoadmapStage {
 }
 
 interface UserData {
-  _id: string;
+  id: string;
   name: string;
   email: string;
   userType: 'student' | 'professional';
@@ -55,9 +55,11 @@ interface RecentActivity {
   date: string;
 }
 
+import { useSession } from '@/lib/auth-client';
+
 export default function DashboardPage() {
   const router = useRouter();
-  const [user, setUser] = useState<UserData | null>(null);
+  const { data: session, isPending } = useSession();
   const [stats, setStats] = useState<DashboardStats>({
     totalAssessments: 0,
     interviewSessions: 0,
@@ -70,42 +72,41 @@ export default function DashboardPage() {
   const [roadmap, setRoadmap] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [fetchingRoadmap, setFetchingRoadmap] = useState(false);
+  const [dbUser, setDbUser] = useState<any>(null);
+
+  // Use dbUser (fresh from DB) if available, fallback to session user
+  const sessionUser = session?.user as any;
+  const user = dbUser || sessionUser;
 
   useEffect(() => {
-    const initDashboard = async () => {
-      const storedUser = localStorage.getItem('user');
-      if (!storedUser) {
-        router.push('/login');
-        return;
-      }
-      
-      const parsedUser = JSON.parse(storedUser);
-      const userId = parsedUser._id || parsedUser.id;
-      
-      // Load user from DB to ensure fresh state
-      try {
-        const response = await fetch(`/api/auth/profile?userId=${userId}`);
-        const data = await response.json();
-        if (response.ok) {
-          setUser(data.user);
-          // Sync with localStorage just in case other parts of the app still use it
-          localStorage.setItem('user', JSON.stringify(data.user));
-          await fetchDashboardData(data.user);
-        } else {
-          router.push('/login');
-        }
-      } catch (err) {
-        console.error('Error loading dashboard:', err);
-        setLoading(false);
-      }
-    };
+    if (!isPending && !session) {
+      router.push('/login');
+      return;
+    }
 
-    initDashboard();
-  }, [router]);
+    if (session?.user) {
+      // Fetch fresh user data from DB to get the latest selectedDomain
+      fetch('/api/auth/profile')
+        .then(res => res.json())
+        .then(data => {
+          if (data.user) {
+            // Normalize MongoDB _id to id for compatibility
+            const freshUser = { ...data.user, id: data.user._id || data.user.id };
+            setDbUser(freshUser);
+            fetchDashboardData(freshUser);
+          } else {
+            fetchDashboardData(session.user as any);
+          }
+        })
+        .catch(() => {
+          fetchDashboardData(session.user as any);
+        });
+    }
+  }, [session, isPending, router]);
 
   const fetchDashboardData = async (currentUser: UserData) => {
     try {
-      const userId = currentUser._id;
+      const userId = currentUser.id;
       
       // Fetch progress data
       const progressRes = await fetch(`/api/interview/progress?userId=${userId}`);
@@ -138,8 +139,18 @@ export default function DashboardPage() {
           date: new Date().toISOString(),
         });
         
-        // Fetch roadmap
-        fetchRoadmap(userId, currentUser.selectedDomain);
+        // Fetch student roadmap
+        await fetchRoadmap(userId, currentUser.selectedDomain, 'student');
+      } else if (currentUser.targetRole) {
+        mockActivities.unshift({
+          id: 'role-selected',
+          type: 'roadmap',
+          description: `Focusing on transition to ${currentUser.targetRole}`,
+          date: new Date().toISOString(),
+        });
+        
+        // Fetch professional roadmap
+        await fetchRoadmap(userId, currentUser.targetRole, 'professional');
       }
 
       setActivities(mockActivities);
@@ -150,16 +161,24 @@ export default function DashboardPage() {
     }
   };
 
-  const fetchRoadmap = async (userId: string, domain: string) => {
+  const fetchRoadmap = async (userId: string, domain: string, type: 'student' | 'professional') => {
     setFetchingRoadmap(true);
     try {
-      const response = await fetch(`/api/discovery/roadmap?userId=${userId}&domain=${encodeURIComponent(domain)}`);
-      const data = await response.json();
+      // Note: roadmap APIs use session internally — no userId needed in URL
+      const endpoint = type === 'student' 
+        ? `/api/discovery/roadmap?domain=${encodeURIComponent(domain)}`
+        : `/api/gap/roadmap`;
+      
+      const response = await fetch(endpoint);
       if (response.ok) {
+        const data = await response.json();
         setRoadmap(data.roadmap);
+      } else {
+        setRoadmap(null);
       }
     } catch (err) {
       console.error('Error fetching roadmap:', err);
+      setRoadmap(null);
     } finally {
       setFetchingRoadmap(false);
     }
@@ -228,7 +247,7 @@ export default function DashboardPage() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.1, duration: 0.5 }}
-            className={`grid ${isStudent ? 'md:grid-cols-2' : 'md:grid-cols-2'} lg:grid-cols-3 gap-6 mb-8`}
+            className="grid md:grid-cols-2 gap-6 mb-8"
           >
             {/* Skill Discovery Card - Student Only */}
             {isStudent && (
@@ -277,20 +296,37 @@ export default function DashboardPage() {
               <Card className="glass-card hover-lift ring-2 ring-purple-500/30">
                 <CardHeader>
                   <div className="w-12 h-12 rounded-xl bg-gradient-to-r from-purple-500 to-pink-500 flex items-center justify-center mb-4">
-                    <TrendingUp className="w-6 h-6 text-white" />
+                    <Brain className="w-6 h-6 text-white" />
                   </div>
                   <CardTitle className="text-white">Gap Analysis</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <p className="text-slate-400 mb-6 min-h-[48px]">
-                    Analyze your skill gaps and get a focused transition plan for career switchers.
-                  </p>
-                  <Link href="/gap-analysis">
-                    <Button className="w-full bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600">
-                      Start Analysis
-                      <ArrowRight className="w-4 h-4 ml-2" />
-                    </Button>
-                  </Link>
+                  {user.targetRole && roadmap ? (
+                    <>
+                      <p className="text-slate-400 mb-6 min-h-[48px]">
+                        <span className="text-purple-400 font-medium">✨ Soon to be a {user.targetRole}!</span> You're analyzing the right path. Stay focused on your transition.
+                      </p>
+                      <Button 
+                        className="w-full btn-gradient"
+                        onClick={() => router.push('/gap-analysis')}
+                      >
+                        View Roadmap
+                        <ArrowRight className="w-4 h-4 ml-2" />
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-slate-400 mb-6 min-h-[48px]">
+                        Bridge the gap between your current role and your dream career with targeted analysis.
+                      </p>
+                      <Link href="/gap-analysis">
+                        <Button className="w-full bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600">
+                          Start Analysis
+                          <ArrowRight className="w-4 h-4 ml-2" />
+                        </Button>
+                      </Link>
+                    </>
+                  )}
                 </CardContent>
               </Card>
             )}
@@ -414,7 +450,7 @@ export default function DashboardPage() {
           </motion.div>
 
           {/* Personalized Roadmap Section */}
-          {user.selectedDomain && (
+          {hasDomain && roadmap && (
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
@@ -426,7 +462,7 @@ export default function DashboardPage() {
                   <div className="flex items-center justify-between">
                     <CardTitle className="text-white flex items-center">
                       <TrendingUp className="w-6 h-6 mr-2 text-indigo-400" />
-                      Active Roadmap: {user.selectedDomain}
+                      {user.userType === 'student' ? 'Active Roadmap' : 'Transition Plan'}: {user.selectedDomain || user.targetRole}
                     </CardTitle>
                     {roadmap?.totalEstimatedTime && (
                       <Badge variant="secondary" className="bg-indigo-500/10 text-indigo-400 border-indigo-500/20">
@@ -445,15 +481,15 @@ export default function DashboardPage() {
                       </div>
                     ) : roadmap ? (
                       <div className="space-y-6">
-                        {/* Already Covered */}
-                        {roadmap.alreadyCovered?.length > 0 && (
+                        {/* Already Covered / Topics to Skip */}
+                        {(roadmap.alreadyCovered?.length > 0 || roadmap.skip?.length > 0) && (
                           <div className="p-4 rounded-xl bg-green-500/5 border border-green-500/10">
                             <h4 className="text-sm font-semibold text-green-400 uppercase tracking-wider mb-3 flex items-center">
                               <CheckCircle2 className="w-4 h-4 mr-2" />
-                              Foundation & Skills Already Covered
+                              {roadmap.alreadyCovered ? 'Skills Already Covered' : 'Topics You Can Skip'}
                             </h4>
                             <div className="flex flex-wrap gap-2">
-                              {roadmap.alreadyCovered.map((skill: string, idx: number) => (
+                              {(roadmap.alreadyCovered || roadmap.skip).map((skill: string, idx: number) => (
                                 <Badge key={idx} variant="outline" className="bg-green-500/10 text-green-400 border-green-500/20">
                                   {skill}
                                 </Badge>
@@ -462,56 +498,59 @@ export default function DashboardPage() {
                           </div>
                         )}
 
-                        {/* Learning Path */}
+                        {/* Learning Path / Focus Areas */}
                         <div className="space-y-4">
                           <h4 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-4">
-                            Your Learning Path
+                             Your Action Plan
                           </h4>
-                          {roadmap.toLearn?.map((stage: RoadmapStage, index: number) => (
-                            <div key={index} className="flex gap-4 group">
-                              <div className="flex flex-col items-center">
-                                <div className="w-10 h-10 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-indigo-400 font-bold group-hover:border-indigo-500/50 transition-colors">
-                                  {stage.stage}
-                                </div>
-                                {index !== roadmap.toLearn.length - 1 && (
-                                  <div className="w-0.5 flex-1 bg-slate-800 my-2" />
-                                )}
-                              </div>
-                              <div className="flex-1 pb-8">
-                                <div className="p-4 rounded-xl bg-slate-800/30 border border-slate-700/50 hover:bg-slate-800/50 transition-all">
-                                  <div className="flex items-center justify-between mb-2">
-                                    <h5 className="text-white font-semibold">{stage.topic}</h5>
-                                    <Badge variant="outline" className="text-[10px] text-slate-400 border-slate-700">
-                                      {stage.estimatedDuration}
-                                    </Badge>
+                          {(roadmap.toLearn || roadmap.focusAreas)?.map((stage: RoadmapStage, index: number) => {
+                            const steps = roadmap.toLearn || roadmap.focusAreas;
+                            return (
+                              <div key={index} className="flex gap-4 group">
+                                <div className="flex flex-col items-center">
+                                  <div className="w-10 h-10 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-indigo-400 font-bold group-hover:border-indigo-500/50 transition-colors">
+                                    {stage.stage}
                                   </div>
-                                  
-                                  {stage.learningLinks && stage.learningLinks.length > 0 && (
-                                    <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                      {stage.learningLinks.map((link, lIdx) => (
-                                        <a
-                                          key={lIdx}
-                                          href={link.url}
-                                          target="_blank"
-                                          rel="noopener noreferrer"
-                                          className="flex items-center text-xs text-indigo-400 hover:text-indigo-300 bg-indigo-500/5 p-2 rounded-lg border border-indigo-500/10 transition-colors"
-                                        >
-                                          <ArrowRight className="w-3 h-3 mr-2" />
-                                          <span className="truncate">{link.title}</span>
-                                        </a>
-                                      ))}
-                                    </div>
+                                  {index !== steps.length - 1 && (
+                                    <div className="w-0.5 flex-1 bg-slate-800 my-2" />
                                   )}
                                 </div>
+                                <div className="flex-1 pb-8">
+                                  <div className="p-4 rounded-xl bg-slate-800/30 border border-slate-700/50 hover:bg-slate-800/50 transition-all">
+                                    <div className="flex items-center justify-between mb-2">
+                                      <h5 className="text-white font-semibold">{stage.topic}</h5>
+                                      <Badge variant="outline" className="text-[10px] text-slate-400 border-slate-700">
+                                        {stage.estimatedDuration}
+                                      </Badge>
+                                    </div>
+                                    
+                                    {stage.learningLinks && stage.learningLinks.length > 0 && (
+                                      <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                        {stage.learningLinks.map((link, lIdx) => (
+                                          <a
+                                            key={lIdx}
+                                            href={link.url}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="flex items-center text-xs text-indigo-400 hover:text-indigo-300 bg-indigo-500/5 p-2 rounded-lg border border-indigo-500/10 transition-colors"
+                                          >
+                                            <ArrowRight className="w-3 h-3 mr-2" />
+                                            <span className="truncate">{link.title}</span>
+                                          </a>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
                               </div>
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       </div>
                     ) : (
                       <div className="text-center py-12">
                         <p className="text-slate-400 mb-4">We couldn't load your roadmap. Please try switching domains or generating a new one.</p>
-                        <Button variant="outline" onClick={() => user.selectedDomain && fetchRoadmap(user._id, user.selectedDomain)}>
+                        <Button variant="outline" onClick={() => (user.selectedDomain || user.targetRole) && fetchRoadmap(user.id, (user.selectedDomain || user.targetRole)!, user.userType)}>
                           Retry Loading
                         </Button>
                       </div>

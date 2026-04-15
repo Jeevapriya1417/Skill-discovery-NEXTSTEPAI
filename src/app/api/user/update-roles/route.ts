@@ -1,16 +1,27 @@
 import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '@/lib/mongodb';
 import User from '@/models/User';
+import { auth } from '@/lib/auth';
+import { headers } from 'next/headers';
 
 export async function POST(req: NextRequest) {
   try {
     await connectDB();
-    const { userId, currentRole, targetRole } = await req.json();
+    
+    const authSession = await auth.api.getSession({
+      headers: await headers(),
+    });
 
-    if (!userId) {
-      return NextResponse.json({ error: 'User ID is required' }, { status: 400 });
+    if (!authSession) {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      );
     }
 
+    const { currentRole, targetRole } = await req.json();
+    const userId = authSession.user.id;
+    
     console.log('Finding user by ID:', userId);
     const user = await User.findById(userId);
     

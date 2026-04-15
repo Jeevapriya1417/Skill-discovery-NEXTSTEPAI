@@ -3,12 +3,53 @@ import connectDB from '@/lib/mongodb';
 import { askGemini, sanitizeJsonResponse } from '@/lib/gemini';
 import Assessment from '@/models/Assessment';
 import User from '@/models/User';
+import { auth } from '@/lib/auth';
+import { headers } from 'next/headers';
 
 export async function POST(req: NextRequest) {
   try {
     await connectDB();
     
-    const { assessmentId, userAnswers } = await req.json();
+    const session = await auth.api.getSession({
+      headers: await headers(),
+    });
+
+    if (!session) {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
+    const body = await req.json();
+    const { assessmentId, userAnswers, checkOnly } = body;
+
+    if (checkOnly) {
+      const latestAssessment = await Assessment.findOne({ 
+        userId: session.user.id,
+        evaluatedLevel: { $ne: '' } 
+      }).sort({ createdAt: -1 });
+
+      if (latestAssessment) {
+        return NextResponse.json(
+          {
+            message: 'Existing evaluation found',
+            assessmentId: latestAssessment._id,
+            score: latestAssessment.scores.total,
+            evaluatedLevel: latestAssessment.evaluatedLevel,
+            strengths: latestAssessment.strengths,
+            weaknesses: latestAssessment.weaknesses,
+            results: latestAssessment.results,
+          },
+          { status: 200 }
+        );
+      } else {
+        return NextResponse.json(
+          { message: 'No existing evaluation found' },
+          { status: 404 }
+        );
+      }
+    }
 
     if (!assessmentId || !userAnswers) {
       return NextResponse.json(
@@ -22,6 +63,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         { error: 'Assessment not found' },
         { status: 404 }
+      );
+    }
+
+    // Security check: Ensure this assessment belongs to the logged-in user
+    if (assessment.userId.toString() !== session.user.id) {
+      return NextResponse.json(
+        { error: 'Unauthorized access to assessment' },
+        { status: 403 }
       );
     }
 

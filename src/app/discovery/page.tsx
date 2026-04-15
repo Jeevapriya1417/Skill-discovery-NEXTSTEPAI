@@ -28,6 +28,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import Navbar from '@/components/Navbar';
 import RoleGuard from '@/components/RoleGuard';
+import { useSession } from '@/lib/auth-client';
 
 interface Question {
   question: string;
@@ -57,7 +58,7 @@ export default function DiscoveryPage() {
 
 function DiscoveryContent() {
   const router = useRouter();
-  const [user, setUser] = useState<any>(null);
+  const session = useSession();
   const [step, setStep] = useState<'intro' | 'test' | 'evaluating' | 'results' | 'domains' | 'roadmap'>('intro');
   const [questions, setQuestions] = useState<Question[]>([]);
   const [answers, setAnswers] = useState<string[]>([]);
@@ -72,37 +73,18 @@ function DiscoveryContent() {
 
   useEffect(() => {
     const initDiscovery = async () => {
-      const storedUser = localStorage.getItem('user');
-      if (!storedUser) {
-        router.push('/login');
-        return;
-      }
+      if (session.isPending || !session.data?.user) return;
       
-      const parsedUser = JSON.parse(storedUser);
-      const userId = parsedUser._id || parsedUser.id;
-
+      const user = session.data.user as any;
       setLoading(true);
+
       try {
-        // Load user from DB to ensure fresh state
-        const userRes = await fetch(`/api/auth/profile?userId=${userId}`);
-        const userData = await userRes.json();
-        
-        if (!userRes.ok) {
-          router.push('/login');
-          return;
-        }
-
-        const user = userData.user;
-        // Sync with localStorage
-        localStorage.setItem('user', JSON.stringify(user));
-
         const params = new URLSearchParams(window.location.search);
         const action = params.get('action');
 
         if (action === 'switch') {
-          // User wants to change domain: fetch suggested domains instead of auto-loading
           try {
-            const response = await fetch(`/api/discovery/domains?userId=${userId}`);
+            const response = await fetch(`/api/discovery/domains`);
             const data = await response.json();
             if (response.ok) {
               setDomains(data.suggestedDomains);
@@ -117,7 +99,7 @@ function DiscoveryContent() {
           }
         } else if (user.selectedDomain) {
           try {
-            const response = await fetch(`/api/discovery/roadmap?userId=${userId}&domain=${encodeURIComponent(user.selectedDomain)}`);
+            const response = await fetch(`/api/discovery/roadmap?domain=${encodeURIComponent(user.selectedDomain)}`);
             const data = await response.json();
             if (response.ok) {
               setRoadmap(data.roadmap);
@@ -127,29 +109,43 @@ function DiscoveryContent() {
           } catch (err: any) {
             console.error(err);
           }
+        } else {
+          // If no domain selected, check if user has a recent assessment
+          try {
+            const response = await fetch('/api/discovery/evaluate', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ checkOnly: true }), // New logic in API to just return latest
+            });
+            const data = await response.json();
+            if (response.ok && data.assessmentId && data.evaluatedLevel) {
+              setEvaluation(data);
+              setStep('results');
+            }
+          } catch (err) {
+            console.error('Error checking for existing assessment:', err);
+          }
         }
       } catch (err) {
         console.error('Error initializing discovery:', err);
-        setError('Failed to load user profile');
+        setError('Failed to load discovery data');
       } finally {
         setLoading(false);
       }
     };
 
     initDiscovery();
-  }, [router]);
+  }, [router, session.data, session.isPending]);
 
   const startTest = async () => {
     setLoading(true);
     setError('');
     
     try {
-      const storedUser = JSON.parse(localStorage.getItem('user') || '{}');
-      const userId = storedUser._id || storedUser.id;
       const response = await fetch('/api/discovery/generate-test', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId }),
+        body: JSON.stringify({}), // Server gets userId from session
       });
 
       const data = await response.json();
@@ -188,12 +184,10 @@ function DiscoveryContent() {
     setLoading(true);
 
     try {
-      const storedUser = JSON.parse(localStorage.getItem('user') || '{}');
-      const userId = storedUser._id || storedUser.id;
       const response = await fetch('/api/discovery/evaluate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ assessmentId, userAnswers: answers, userId }),
+        body: JSON.stringify({ assessmentId, userAnswers: answers }), // Server gets userId from session
       });
 
       const data = await response.json();
@@ -217,9 +211,7 @@ function DiscoveryContent() {
     setError('');
 
     try {
-      const storedUser = JSON.parse(localStorage.getItem('user') || '{}');
-      const userId = storedUser._id || storedUser.id;
-      const response = await fetch(`/api/discovery/domains?userId=${userId}`);
+      const response = await fetch(`/api/discovery/domains`);
       
       const data = await response.json();
       
@@ -241,9 +233,7 @@ function DiscoveryContent() {
     setError('');
 
     try {
-      const storedUser = JSON.parse(localStorage.getItem('user') || '{}');
-      const userId = storedUser._id || storedUser.id;
-      const response = await fetch(`/api/discovery/roadmap?userId=${userId}&domain=${encodeURIComponent(domain)}`);
+      const response = await fetch(`/api/discovery/roadmap?domain=${encodeURIComponent(domain)}`);
       
       const data = await response.json();
       
@@ -266,12 +256,10 @@ function DiscoveryContent() {
     setError('');
 
     try {
-      const storedUser = JSON.parse(localStorage.getItem('user') || '{}');
-      const userId = storedUser._id || storedUser.id;
       const response = await fetch('/api/discovery/select-domain', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId, domain: selectedDomain }),
+        body: JSON.stringify({ domain: selectedDomain }), // Server gets userId from session
       });
 
       if (!response.ok) {
@@ -279,13 +267,7 @@ function DiscoveryContent() {
         throw new Error(data.error || 'Failed to select domain');
       }
 
-      // Update local user data
-      if (user) {
-        const updatedUser = { ...user, selectedDomain };
-        setUser(updatedUser);
-        localStorage.setItem('user', JSON.stringify(updatedUser));
-      }
-      
+      alert('Domain selected successfully!');
       router.push('/dashboard');
     } catch (err: any) {
       setError(err.message);
@@ -351,84 +333,152 @@ function DiscoveryContent() {
     </motion.div>
   );
 
-  const renderTest = () => (
-    <motion.div
-      initial={{ opacity: 0, x: 20 }}
-      animate={{ opacity: 1, x: 0 }}
-      className="max-w-2xl mx-auto"
-    >
-      <div className="mb-6">
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-slate-400">
-            Question {currentQuestion + 1} of {questions.length}
-          </span>
-          <span className="text-indigo-400">
-            {Math.round(((currentQuestion + 1) / questions.length) * 100)}%
-          </span>
-        </div>
-        <Progress value={((currentQuestion + 1) / questions.length) * 100} />
-      </div>
+  const renderTest = () => {
+    const currentQuestionData = questions[currentQuestion];
+    const isCodeQuestion = currentQuestionData?.question.includes('```') || 
+                          currentQuestionData?.question.includes(';') || 
+                          currentQuestionData?.question.includes('{');
 
-      <Card className="glass-card">
-        <CardContent className="p-8">
-          <h2 className="text-xl font-semibold text-white mb-6">
-            {questions[currentQuestion]?.question}
-          </h2>
-
-          {questions[currentQuestion]?.type === 'coding' ? (
-            <div className="space-y-4">
-              <p className="text-slate-400 text-sm">Write your solution below:</p>
-              <Textarea
-                placeholder="Write your code here..."
-                className="min-h-[200px] font-mono bg-slate-900 border-slate-700 text-slate-100 placeholder:text-slate-600 focus:ring-indigo-500"
-                value={answers[currentQuestion]}
-                onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => handleAnswer(e.target.value)}
-              />
+    return (
+      <motion.div
+        initial={{ opacity: 0, x: 20 }}
+        animate={{ opacity: 1, x: 0 }}
+        className="max-w-5xl mx-auto"
+      >
+        <div className="mb-8">
+          <div className="flex items-center justify-between mb-4">
+            <div className="space-y-1">
+              <h3 className="text-white font-medium">Skill Assessment</h3>
+              <p className="text-sm text-slate-400">
+                Question {currentQuestion + 1} of {questions.length}
+              </p>
             </div>
-          ) : (
-            <RadioGroup
-              value={answers[currentQuestion]}
-              onValueChange={handleAnswer}
-              className="space-y-3"
-            >
-              {questions[currentQuestion]?.options?.map((option, index) => (
-                <div
-                  key={index}
-                  className={`flex items-center space-x-3 p-4 rounded-lg border transition-all cursor-pointer ${
-                    answers[currentQuestion] === String.fromCharCode(65 + index)
-                      ? 'border-indigo-500 bg-indigo-500/10'
-                      : 'border-slate-700 hover:border-slate-600'
-                  }`}
-                  onClick={() => handleAnswer(String.fromCharCode(65 + index))}
-                >
-                  <RadioGroupItem
-                    value={String.fromCharCode(65 + index)}
-                    id={`option-${index}`}
-                    className="border-slate-500 text-indigo-500"
-                  />
-                  <Label
-                    htmlFor={`option-${index}`}
-                    className="flex-grow text-slate-300 cursor-pointer"
-                  >
-                    {option}
-                  </Label>
-                </div>
-              ))}
-            </RadioGroup>
-          )}
+            <div className="text-right">
+              <span className="text-2xl font-bold text-indigo-400">
+                {Math.round(((currentQuestion + 1) / questions.length) * 100)}%
+              </span>
+              <p className="text-[10px] text-slate-500 uppercase tracking-wider">Progress</p>
+            </div>
+          </div>
+          <Progress value={((currentQuestion + 1) / questions.length) * 100} className="h-2" />
+        </div>
 
-          <Button
-            className="w-full mt-6 btn-gradient"
-            onClick={nextQuestion}
-            disabled={!answers[currentQuestion]}
-          >
-            {currentQuestion === questions.length - 1 ? 'Submit' : 'Next'}
-            <ArrowRight className="w-4 h-4 ml-2" />
-          </Button>
-        </CardContent>
-      </Card>
-    </motion.div>
-  );
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
+          {/* Left Side: Question */}
+          <Card className="glass-card sticky top-24">
+            <CardHeader className="border-b border-white/5 bg-white/5">
+              <Badge variant="outline" className="w-fit mb-2 border-indigo-500/30 text-indigo-400">
+                Question {currentQuestion + 1}
+              </Badge>
+              <CardTitle className="text-white text-xl leading-relaxed">
+                {isCodeQuestion ? "Analyze the following:" : "Select the best answer:"}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-8">
+              <div className="prose prose-invert max-w-none">
+                {currentQuestionData?.question.split('\n').map((line, i) => (
+                  <p key={i} className={`text-slate-300 mb-4 ${line.trim().startsWith('//') || line.trim().includes('console.log') ? 'font-mono text-sm bg-slate-950/50 p-2 rounded border border-white/5' : ''}`}>
+                    {line}
+                  </p>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Right Side: Options/Answer */}
+          <div className="space-y-6">
+            <Card className="glass-card overflow-hidden">
+              <CardHeader className="border-b border-white/5 bg-white/5">
+                <CardTitle className="text-sm font-medium text-slate-400 flex items-center">
+                  <Target className="w-4 h-4 mr-2 text-indigo-400" />
+                  Your Response
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="p-8">
+                {currentQuestionData?.type === 'coding' ? (
+                  <div className="space-y-4">
+                    <Label className="text-slate-400">Write your solution:</Label>
+                    <div className="relative group">
+                      <div className="absolute -inset-1 bg-gradient-to-r from-indigo-500 to-purple-500 rounded-xl blur opacity-25 group-focus-within:opacity-50 transition duration-1000"></div>
+                      <Textarea
+                        placeholder="// Write your code here..."
+                        className="relative min-h-[300px] font-mono bg-slate-950 border-slate-800 text-indigo-300 placeholder:text-slate-700 focus:ring-indigo-500 rounded-xl p-6"
+                        value={answers[currentQuestion]}
+                        onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => handleAnswer(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <RadioGroup
+                    value={answers[currentQuestion]}
+                    onValueChange={handleAnswer}
+                    className="grid gap-4"
+                  >
+                    {currentQuestionData?.options?.map((option, index) => (
+                      <div
+                        key={index}
+                        className={`group flex items-center space-x-4 p-5 rounded-2xl border-2 transition-all cursor-pointer ${
+                          answers[currentQuestion] === String.fromCharCode(65 + index)
+                            ? 'border-indigo-500 bg-indigo-500/10 shadow-lg shadow-indigo-500/10'
+                            : 'border-slate-800 bg-slate-800/20 hover:border-slate-700'
+                        }`}
+                        onClick={() => handleAnswer(String.fromCharCode(65 + index))}
+                      >
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center border-2 transition-colors ${
+                          answers[currentQuestion] === String.fromCharCode(65 + index)
+                            ? 'bg-indigo-500 border-indigo-500 text-white'
+                            : 'border-slate-700 text-slate-500 group-hover:border-slate-600'
+                        }`}>
+                          <span className="text-sm font-bold">{String.fromCharCode(65 + index)}</span>
+                        </div>
+                        <RadioGroupItem
+                          value={String.fromCharCode(65 + index)}
+                          id={`option-${index}`}
+                          className="sr-only"
+                        />
+                        <Label
+                          htmlFor={`option-${index}`}
+                          className="flex-grow text-slate-300 cursor-pointer text-base font-medium leading-normal"
+                        >
+                          {option}
+                        </Label>
+                        {answers[currentQuestion] === String.fromCharCode(65 + index) && (
+                          <CheckCircle2 className="w-5 h-5 text-indigo-400" />
+                        )}
+                      </div>
+                    ))}
+                  </RadioGroup>
+                )}
+              </CardContent>
+            </Card>
+
+            <Button
+              size="lg"
+              className="w-full py-8 text-lg font-bold btn-gradient rounded-2xl shadow-xl shadow-indigo-500/20 hover:scale-[1.02] active:scale-[0.98] transition-all"
+              onClick={nextQuestion}
+              disabled={!answers[currentQuestion]}
+            >
+              {currentQuestion === questions.length - 1 ? (
+                <>
+                  Complete Assessment
+                  <Sparkles className="w-5 h-5 ml-2" />
+                </>
+              ) : (
+                <>
+                  Next Question
+                  <ArrowRight className="w-5 h-5 ml-2" />
+                </>
+              )}
+            </Button>
+            
+            <p className="text-center text-slate-500 text-xs mt-4">
+              Your progress is saved automatically. Take your time to answer carefully.
+            </p>
+          </div>
+        </div>
+      </motion.div>
+    );
+  };
 
   const renderEvaluating = () => (
     <motion.div

@@ -3,19 +3,25 @@ import connectDB from '@/lib/mongodb';
 import { askGemini, sanitizeJsonResponse } from '@/lib/gemini';
 import User from '@/models/User';
 import Assessment from '@/models/Assessment';
+import { auth } from '@/lib/auth';
+import { headers } from 'next/headers';
 
 export async function POST(req: NextRequest) {
   try {
     await connectDB();
     
-    const { userId } = await req.json();
+    const authSession = await auth.api.getSession({
+      headers: await headers(),
+    });
 
-    if (!userId) {
+    if (!authSession) {
       return NextResponse.json(
-        { error: 'User ID is required' },
-        { status: 400 }
+        { error: 'Unauthorized' },
+        { status: 401 }
       );
     }
+
+    const userId = authSession.user.id;
 
     const user = await User.findById(userId);
     if (!user) {
@@ -29,6 +35,13 @@ export async function POST(req: NextRequest) {
     const targetRole = user.targetRole;
     const experience = user.yearsOfExperience || 0;
     const technologies = user.technologiesCurrentlyWorkingWith || [];
+    const difficulty = user.selfRatedSkillLevel || 'Beginner';
+
+    const levelGuidance = {
+      'Beginner': 'Focus on fundamental syntax, basic role responsibilities, core tools, and standard workflows. Avoid deep architectural or complex optimization problems.',
+      'Intermediate': 'Focus on practical problem-solving, debugging, modular design, common industry patterns, performance considerations, and team-level best practices.',
+      'Advanced': 'Focus on large-scale system architecture, advanced optimization, security at scale, complex trade-off analysis, leadership in technical decisions, and emerging industry trends.'
+    }[difficulty as 'Beginner' | 'Intermediate' | 'Advanced'] || 'Focus on professional proficiency.';
 
     if (!currentRole || !targetRole) {
       return NextResponse.json(
@@ -37,14 +50,17 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const prompt = `A professional currently working as a ${currentRole} with ${experience} years of experience and skilled in ${technologies.join(', ')} wants to transition to a ${targetRole} position.
+    const prompt = `A professional currently working as a ${currentRole} with ${experience} years of experience and skilled in ${technologies.join(', ')} wants to transition to a ${targetRole} position. They have self-rated their CURRENT proficiency as ${difficulty}.
 
 Generate exactly 15 questions to assess their CURRENT skills (${currentRole}) so we know their baseline before providing a transition roadmap:
 - 13 Multiple Choice Questions (MCQs)
 - 2 Coding Problems (where they need to write code)
 
+Assessment Level Guidance: ${levelGuidance}
+
 Distribution:
-- All 15 questions must be about their current role expertise (${currentRole}), focusing on advanced topics to gauge their true proficiency.
+- All 15 questions must be about their current role expertise (${currentRole}), explicitly at an ${difficulty} level. 
+- Ensure the questions are challenging enough for a professional at this level.
 
 For each MCQ, provide:
 - "question": text

@@ -9,6 +9,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { signIn } from '@/lib/auth-client';
+import { FcGoogle } from 'react-icons/fc';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -24,28 +26,29 @@ export default function LoginPage() {
     setError('');
 
     try {
-      const response = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
+      const { error } = await signIn.email({
+        email,
+        password,
+      }, {
+        onSuccess: () => {
+          router.push('/dashboard');
+        },
+        onError: (ctx) => {
+          setError(ctx.error.message || 'Login failed');
+        }
       });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Login failed');
-      }
-
-      // Store user data in localStorage
-      localStorage.setItem('user', JSON.stringify(data.user));
-      
-      // Redirect to dashboard
-      router.push('/dashboard');
     } catch (err: any) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleGoogleLogin = async () => {
+    await signIn.social({
+      provider: 'google',
+      callbackURL: '/dashboard',
+    });
   };
 
   return (
@@ -139,6 +142,22 @@ export default function LoginPage() {
                   <ArrowRight className="w-5 h-5 ml-2" />
                 </>
               )}
+            </Button>
+
+            <div className="relative my-6 text-center text-sm after:absolute after:inset-0 after:top-1/2 after:z-0 after:flex after:items-center after:border-t after:border-slate-800">
+              <span className="relative z-10 bg-[#020617] px-2 text-slate-500">
+                Or continue with
+              </span>
+            </div>
+
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleGoogleLogin}
+              className="w-full bg-slate-800/50 border-slate-700 text-white hover:bg-slate-800 py-6"
+            >
+              <FcGoogle className="w-5 h-5 mr-3" />
+              Sign in with Google
             </Button>
           </form>
 

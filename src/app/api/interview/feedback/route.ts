@@ -3,11 +3,24 @@ import connectDB from '@/lib/mongodb';
 import { askGemini, sanitizeJsonResponse } from '@/lib/gemini';
 import InterviewSession from '@/models/InterviewSession';
 import UserProgress from '@/models/UserProgress';
+import { auth } from '@/lib/auth';
+import { headers } from 'next/headers';
 
 export async function POST(req: NextRequest) {
   try {
     await connectDB();
     
+    const authSession = await auth.api.getSession({
+      headers: await headers(),
+    });
+
+    if (!authSession) {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
     const { sessionId } = await req.json();
 
     if (!sessionId) {
@@ -17,6 +30,14 @@ export async function POST(req: NextRequest) {
     const session = await InterviewSession.findById(sessionId);
     if (!session) {
       return NextResponse.json({ error: 'Session not found' }, { status: 404 });
+    }
+
+    // Security check: Ensure this session belongs to the logged-in user
+    if (session.userId.toString() !== authSession.user.id) {
+      return NextResponse.json(
+        { error: 'Unauthorized access to session' },
+        { status: 403 }
+      );
     }
 
     // 1. Prepare Bulk Context for Gemini

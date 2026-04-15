@@ -4,20 +4,26 @@ import { askGemini, sanitizeJsonResponse } from '@/lib/gemini';
 import User from '@/models/User';
 import GapAnalysis from '@/models/GapAnalysis';
 import Roadmap from '@/models/Roadmap';
+import { auth } from '@/lib/auth';
+import { headers } from 'next/headers';
 
 export async function GET(req: NextRequest) {
   try {
     await connectDB();
     
-    const { searchParams } = new URL(req.url);
-    const userId = searchParams.get('userId');
+    const session = await auth.api.getSession({
+      headers: await headers(),
+    });
 
-    if (!userId) {
+    if (!session) {
       return NextResponse.json(
-        { error: 'User ID is required' },
-        { status: 400 }
+        { error: 'Unauthorized' },
+        { status: 401 }
       );
     }
+
+    const userId = session.user.id;
+    const { searchParams } = new URL(req.url);
 
     const user = await User.findById(userId);
     if (!user) {
@@ -47,7 +53,7 @@ Their profile:
 
 Create a roadmap that:
 1. Lists topics they can skip (what they already know from transferable skills)
-2. Lists focus areas to learn (based on skill gaps, ordered by priority - High severity first)
+2. Lists focus areas to learn (based on skill gaps, ordered by priority - High severity first). For each focus area, include 2-3 specific learningLinks to high-quality free resources like YouTube, freeCodeCamp, documentation, etc. The URL should be a real applicable link.
 3. Includes estimated duration for each focus area
 4. Provides total estimated transition time
 
@@ -55,9 +61,14 @@ Return as valid JSON with this structure:
 {
   "skip": ["topic 1", "topic 2", ...],
   "focusAreas": [
-    { "stage": 1, "topic": "topic name", "estimatedDuration": "X weeks" },
-    { "stage": 2, "topic": "topic name", "estimatedDuration": "X weeks" },
-    ...
+    { 
+      "stage": 1, 
+      "topic": "topic name", 
+      "estimatedDuration": "X weeks",
+      "learningLinks": [
+        { "title": "Resource Title", "url": "https://..." }
+      ]
+    }
   ],
   "totalEstimatedTime": "X months"
 }
@@ -79,6 +90,7 @@ Include 5-7 focus areas. Only return the JSON, nothing else.`;
           stage: index + 1,
           topic: gap.skill,
           estimatedDuration: gap.severity === 'High' ? '4 weeks' : gap.severity === 'Medium' ? '3 weeks' : '2 weeks',
+          learningLinks: []
         })),
         totalEstimatedTime: '3 months',
       };
@@ -100,9 +112,9 @@ Include 5-7 focus areas. Only return the JSON, nothing else.`;
         roadmap: {
           _id: roadmap._id,
           targetRole,
-          skip: roadmapData.skip || [],
-          focusAreas: roadmapData.focusAreas || [],
-          totalEstimatedTime: roadmapData.totalEstimatedTime || '3 months',
+          skip: roadmap.alreadyCovered,
+          focusAreas: roadmap.toLearn,
+          totalEstimatedTime: roadmap.totalEstimatedTime,
         },
       },
       { status: 200 }

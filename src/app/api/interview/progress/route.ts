@@ -2,20 +2,25 @@ import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '@/lib/mongodb';
 import InterviewSession from '@/models/InterviewSession';
 import UserProgress from '@/models/UserProgress';
+import { auth } from '@/lib/auth';
+import { headers } from 'next/headers';
 
 export async function GET(req: NextRequest) {
   try {
     await connectDB();
     
-    const { searchParams } = new URL(req.url);
-    const userId = searchParams.get('userId');
+    const session = await auth.api.getSession({
+      headers: await headers(),
+    });
 
-    if (!userId) {
+    if (!session) {
       return NextResponse.json(
-        { error: 'User ID is required' },
-        { status: 400 }
+        { error: 'Unauthorized' },
+        { status: 401 }
       );
     }
+
+    const userId = session.user.id;
 
     // Get user progress
     const userProgress = await UserProgress.findOne({ userId });

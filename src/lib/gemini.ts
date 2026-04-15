@@ -9,7 +9,8 @@ if (!GOOGLE_GEMINI_API_KEY) {
 const genAI = new GoogleGenerativeAI(GOOGLE_GEMINI_API_KEY);
 
 export async function askGemini(prompt: string): Promise<string> {
-  const models = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-flash-latest', 'gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-pro'];
+  // More stable models first; gemini-2.5-flash is experimental and prone to 503s
+  const models = ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-2.5-flash', 'gemini-flash-latest', 'gemini-pro'];
   let lastError;
 
   for (const modelName of models) {
@@ -21,16 +22,21 @@ export async function askGemini(prompt: string): Promise<string> {
     } catch (error) {
       console.error(`Gemini API error with ${modelName}:`, error);
       lastError = error;
-      // If it's a 404, we try the next model
+      // For 404 (model not found), try the next model
       if (error instanceof Error && error.message.includes('404')) {
         continue;
       }
-      // If it's a quota error, wait and try the next model or retry
+      // For 429 (quota), wait briefly then try next model
       if (error instanceof Error && error.message.includes('429')) {
         await new Promise(resolve => setTimeout(resolve, 2000));
         continue;
       }
-      break;
+      // For 503 (overloaded/unavailable), try the next model
+      if (error instanceof Error && error.message.includes('503')) {
+        continue;
+      }
+      // For other errors, still try next model instead of giving up
+      continue;
     }
   }
   

@@ -27,6 +27,7 @@ import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Separator } from '@/components/ui/separator';
 import Navbar from '@/components/Navbar';
+import { useSession } from '@/lib/auth-client';
 
 type Question = string;
 
@@ -59,14 +60,14 @@ interface AnalysisResult {
 
 export default function MockInterviewPage() {
   const router = useRouter();
+  const session = useSession();
   const [step, setStep] = useState<'intro' | 'session' | 'mini-score' | 'final-report'>('intro');
-  const [session, setSession] = useState<any>(null);
+  const [interviewSession, setInterviewSession] = useState<any>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
   const [loading, setLoading] = useState(false);
   const [processingStep, setProcessingStep] = useState(false);
   const [error, setError] = useState('');
-  const [user, setUser] = useState<any>(null);
   const [domain, setDomain] = useState('');
   
   const [code, setCode] = useState('');
@@ -76,15 +77,11 @@ export default function MockInterviewPage() {
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
-    const userData = localStorage.getItem('user');
-    if (!userData) {
-      router.push('/login');
-      return;
+    if (session.data?.user) {
+      const user = session.data.user as any;
+      setDomain(user.selectedDomain || user.targetRole || '');
     }
-    const parsedUser = JSON.parse(userData);
-    setUser(parsedUser);
-    setDomain(parsedUser.selectedDomain || parsedUser.targetRole || '');
-  }, [router]);
+  }, [session.data]);
 
   useEffect(() => {
     if (isRecording) {
@@ -104,6 +101,8 @@ export default function MockInterviewPage() {
   }, [isRecording]);
 
   const startInterview = async () => {
+    if (!session.data?.user) return;
+    
     setLoading(true);
     setError('');
     
@@ -111,7 +110,7 @@ export default function MockInterviewPage() {
       const response = await fetch('/api/interview/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: user._id }),
+        body: JSON.stringify({}), // Server gets userId from session
       });
 
       const data = await response.json();
@@ -120,7 +119,7 @@ export default function MockInterviewPage() {
         throw new Error(data.error || 'Failed to start session');
       }
 
-      setSession(data.session);
+      setInterviewSession(data.session);
       if (data.session.status === 'completed') {
         setStep('final-report');
       } else {
@@ -175,7 +174,8 @@ export default function MockInterviewPage() {
       // 1. Upload audio
       const formData = new FormData();
       formData.append('audio', audioBlob, 'recording.webm');
-      formData.append('userId', user._id);
+      // Server gets userId from session, but we can keep it as a fallback if needed
+      // However, our API is already updated to use session
 
       const uploadRes = await fetch('/api/interview/upload-audio', {
         method: 'POST',
@@ -201,11 +201,11 @@ export default function MockInterviewPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          sessionId: session._id,
+          sessionId: interviewSession._id,
           audioUrl: audioUrl || null,
           code: code || null,
-          section: session.currentSection,
-          questionIndex: session.currentQuestionIndex,
+          section: interviewSession.currentSection,
+          questionIndex: interviewSession.currentQuestionIndex,
           durationSeconds: recordingTime
         }),
       });
@@ -214,12 +214,12 @@ export default function MockInterviewPage() {
       if (!processRes.ok) throw new Error(processData.error || 'Processing failed');
 
       const updatedSession = processData.session;
-      setSession(updatedSession);
+      setInterviewSession(updatedSession);
       setCode(''); // Reset code editor
       setRecordingTime(0);
 
       // logic for "mini-score" after section 1
-      if (session.currentSection === 1 && updatedSession.currentSection === 2) {
+      if (interviewSession.currentSection === 1 && updatedSession.currentSection === 2) {
         setStep('mini-score');
       } else if (processData.status === 'completed') {
         generateFeedback();
@@ -239,13 +239,13 @@ export default function MockInterviewPage() {
       const response = await fetch('/api/interview/feedback', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId: session._id }),
+        body: JSON.stringify({ sessionId: interviewSession._id }),
       });
 
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Feedback failed');
 
-      setSession({
+      setInterviewSession({
         ...data.session,
         conclusion: data.conclusion
       });
@@ -263,80 +263,82 @@ export default function MockInterviewPage() {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const renderIntro = () => (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="max-w-2xl mx-auto text-center"
-    >
-      <div className="w-20 h-20 rounded-2xl bg-gradient-to-r from-pink-500 to-rose-500 flex items-center justify-center mx-auto mb-8">
-        <Mic className="w-10 h-10 text-white" />
-      </div>
-      
-      <h1 className="text-4xl font-bold text-white mb-4">Mock Interview</h1>
-      <p className="text-slate-400 text-lg mb-8">
-        Practice your communication skills with AI-powered feedback on vocal delivery 
-        and content quality.
-      </p>
-
-      {domain && (
-        <Card className="glass-card mb-8">
-          <CardContent className="p-6">
-            <p className="text-slate-400">Interview Domain</p>
-            <p className="text-2xl font-bold text-white">{domain}</p>
-          </CardContent>
-        </Card>
-      )}
-
-      <div className="grid md:grid-cols-3 gap-4 mb-8">
-        {[
-          { icon: Mic, title: 'Voice Recording', desc: 'Browser-based capture' },
-          { icon: Volume2, title: 'Vocal Analysis', desc: 'Filler words & pace' },
-          { icon: Sparkles, title: 'AI Feedback', desc: 'Content & delivery' },
-        ].map((item) => (
-          <div key={item.title} className="p-4 rounded-xl bg-slate-800/50">
-            <item.icon className="w-6 h-6 text-pink-400 mx-auto mb-2" />
-            <h3 className="text-white font-medium">{item.title}</h3>
-            <p className="text-slate-400 text-sm">{item.desc}</p>
-          </div>
-        ))}
-      </div>
-
-      {error && (
-        <Alert variant="destructive" className="mb-6">
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      )}
-
-      <Button
-        size="lg"
-        className="bg-gradient-to-r from-pink-500 to-rose-500 hover:from-pink-600 hover:to-rose-600 text-lg px-8 py-6"
-        onClick={startInterview}
-        disabled={loading || !domain}
+  const renderIntro = () => {
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="max-w-2xl mx-auto text-center"
       >
-        {loading ? (
-          <>
-            <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-            Preparing...
-          </>
-        ) : (
-          <>
-            Start Mock Interview
-            <ArrowRight className="w-5 h-5 ml-2" />
-          </>
-        )}
-      </Button>
-
-      {!domain && (
-        <p className="text-amber-400 mt-4">
-          Please complete Skill Discovery or Gap Analysis first.
+        <div className="w-20 h-20 rounded-2xl bg-gradient-to-r from-pink-500 to-rose-500 flex items-center justify-center mx-auto mb-8">
+          <Mic className="w-10 h-10 text-white" />
+        </div>
+        
+        <h1 className="text-4xl font-bold text-white mb-4">Mock Interview</h1>
+        <p className="text-slate-400 text-lg mb-8">
+          Practice your communication skills with AI-powered feedback on vocal delivery 
+          and content quality.
         </p>
-      )}
-    </motion.div>
-  );
+
+        {domain && (
+          <Card className="glass-card mb-8">
+            <CardContent className="p-6">
+              <p className="text-slate-400">Interview Domain</p>
+              <p className="text-2xl font-bold text-white">{domain}</p>
+            </CardContent>
+          </Card>
+        )}
+
+        <div className="grid md:grid-cols-3 gap-4 mb-8">
+          {[
+            { icon: Mic, title: 'Voice Recording', desc: 'Browser-based capture' },
+            { icon: Volume2, title: 'Vocal Analysis', desc: 'Filler words & pace' },
+            { icon: Sparkles, title: 'AI Feedback', desc: 'Content & delivery' },
+          ].map((item) => (
+            <div key={item.title} className="p-4 rounded-xl bg-slate-800/50">
+              <item.icon className="w-6 h-6 text-pink-400 mx-auto mb-2" />
+              <h3 className="text-white font-medium">{item.title}</h3>
+              <p className="text-slate-400 text-sm">{item.desc}</p>
+            </div>
+          ))}
+        </div>
+
+        {error && (
+          <Alert variant="destructive" className="mb-6">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+
+        <Button
+          size="lg"
+          className="bg-gradient-to-r from-pink-500 to-rose-500 hover:from-pink-600 hover:to-rose-600 text-lg px-8 py-6"
+          onClick={startInterview}
+          disabled={loading || !domain}
+        >
+          {loading ? (
+            <>
+              <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+              Preparing...
+            </>
+          ) : (
+            <>
+              Start Mock Interview
+              <ArrowRight className="w-5 h-5 ml-2" />
+            </>
+          )}
+        </Button>
+
+        {!domain && (
+          <p className="text-amber-400 mt-4">
+            Please complete Skill Discovery or Gap Analysis first.
+          </p>
+        )}
+      </motion.div>
+    );
+  };
 
   const renderSession = () => {
-    const { currentSection, currentQuestionIndex, section2, section3, section4 } = session;
+    const { currentSection, currentQuestionIndex, section2, section3, section4 } = interviewSession;
     let question = "";
     let progress = 0;
 
@@ -360,13 +362,19 @@ export default function MockInterviewPage() {
     const timeRemaining = Math.max(0, 60 - recordingTime);
 
     return (
-      <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} className="max-w-4xl mx-auto">
-        <div className="mb-6">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-slate-400"> Section {currentSection} of 4 </span>
-            <span className="text-pink-400">{Math.round(progress)}% Session Progress</span>
+      <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} className="max-w-6xl mx-auto">
+        <div className="mb-8">
+          <div className="flex items-center justify-between mb-4">
+            <div className="space-y-1">
+              <h3 className="text-white font-medium">Session Progress</h3>
+              <p className="text-sm text-slate-400">Section {currentSection} of 4</p>
+            </div>
+            <div className="text-right">
+              <span className="text-2xl font-bold text-pink-400">{Math.round(progress)}%</span>
+              <p className="text-[10px] text-slate-500 uppercase tracking-wider">Completed</p>
+            </div>
           </div>
-          <Progress value={progress} className="bg-slate-800" />
+          <Progress value={progress} className="h-2 bg-slate-800" />
         </div>
 
         {error && (
@@ -376,145 +384,160 @@ export default function MockInterviewPage() {
           </Alert>
         )}
 
-        <Card className="glass-card mb-6 overflow-hidden">
-          <div className="h-2 bg-gradient-to-r from-pink-500 to-rose-500" />
-          <CardContent className="p-8">
-            <Badge variant="outline" className="mb-4 text-indigo-400 border-indigo-400/30">
-              {currentSection === 1 ? 'Section 1: Introduction' 
-               : currentSection === 2 ? 'Section 2: Domain Deep-Dive' 
-               : currentSection === 3 ? (isCodingSection ? 'Section 3: Coding Challenge' : 'Section 3: Problem Solving')
-               : 'Section 4: General Topic Speaking'}
-            </Badge>
-            <h2 className="text-2xl font-semibold text-white leading-relaxed">
-              {question}
-            </h2>
-            {isMinTimeSection && (
-              <p className="text-slate-500 text-sm mt-4 flex items-center">
-                <Clock className="w-4 h-4 mr-2" />
-                Minimum duration: 60 seconds. {recordingTime < 60 ? `Keep speaking! (${60 - recordingTime}s left)` : 'Target reached!'}
-              </p>
-            )}
-          </CardContent>
-        </Card>
+        <div className={isCodingSection ? "grid grid-cols-1 lg:grid-cols-2 gap-8 items-start" : "max-w-3xl mx-auto"}>
+          {/* Left Side: Question Card */}
+          <Card className="glass-card sticky top-24 overflow-hidden border-pink-500/10">
+            <div className="h-1 bg-gradient-to-r from-pink-500 to-rose-500" />
+            <CardHeader className="bg-white/5 border-b border-white/5">
+              <Badge variant="outline" className="mb-2 text-indigo-400 border-indigo-400/30">
+                {currentSection === 1 ? 'Section 1: Introduction' 
+                 : currentSection === 2 ? 'Section 2: Domain Deep-Dive' 
+                 : currentSection === 3 ? (isCodingSection ? 'Section 3: Coding Challenge' : 'Section 3: Problem Solving')
+                 : 'Section 4: General Topic Speaking'}
+              </Badge>
+              <CardTitle className="text-white text-xl leading-relaxed">
+                {isCodingSection ? "Implementation Task" : "Interview Question"}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-8">
+              <h2 className="text-xl font-semibold text-white leading-relaxed">
+                {question}
+              </h2>
+              {isMinTimeSection && (
+                <div className="mt-6 p-4 rounded-xl bg-amber-500/5 border border-amber-500/10">
+                  <p className="text-amber-400 text-sm flex items-center">
+                    <Clock className="w-4 h-4 mr-2" />
+                    Minimum duration: 60 seconds. {recordingTime < 60 ? `Keep speaking! (${60 - recordingTime}s left)` : 'Target reached!'}
+                  </p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
 
-        {isCodingSection ? (
+          {/* Right Side: Interaction (Editor or Mic) */}
           <div className="space-y-6">
-            <div className="relative group">
-              <div className="absolute -inset-1 bg-gradient-to-r from-pink-500 to-indigo-500 rounded-xl blur opacity-25 group-focus-within:opacity-50 transition duration-1000"></div>
-              <textarea
-                value={code}
-                onChange={(e) => setCode(e.target.value)}
-                placeholder="// Write your code here..."
-                className="relative w-full h-80 bg-slate-950 border border-slate-800 rounded-xl p-6 font-mono text-sm text-indigo-300 focus:outline-none focus:ring-2 focus:ring-pink-500/50 transition-all"
-              />
-            </div>
-            <div className="flex justify-end">
-              <Button
-                size="lg"
-                className="bg-gradient-to-r from-pink-500 to-rose-500 px-10 py-6 rounded-xl shadow-lg shadow-pink-500/20 hover:scale-105 transition-all text-lg font-bold"
-                onClick={() => submitResponse()}
-                disabled={processingStep || !code.trim()}
-              >
-                {processingStep ? (
-                  <>
-                    <Loader2 className="w-6 h-6 animate-spin mr-3" />
-                    Saving solution...
-                  </>
-                ) : (
-                  <>
-                    Submit Solution
-                    <ArrowRight className="w-6 h-6 ml-3" />
-                  </>
-                )}
-              </Button>
-            </div>
-          </div>
-        ) : (
-          <div className="flex justify-center">
-            {!isRecording ? (
-              <Button
-                size="lg"
-                className="bg-gradient-to-r from-pink-500 to-rose-500 px-10 py-8 rounded-2xl shadow-lg shadow-pink-500/20 hover:scale-105 transition-all text-lg font-bold"
-                onClick={startRecording}
-                disabled={processingStep}
-              >
-                {processingStep ? (
-                  <>
-                    <Loader2 className="w-6 h-6 animate-spin mr-3" />
-                    Processing speech...
-                  </>
-                ) : (
-                  <>
-                    <Mic className="w-6 h-6 mr-3" />
-                    Start Speaking
-                  </>
-                )}
-              </Button>
-            ) : (
-              <div className="text-center w-full">
-                <div className="w-24 h-24 rounded-full bg-red-500/20 flex items-center justify-center mx-auto mb-6 animate-pulse border-2 border-red-500/30">
-                  <div className="w-16 h-16 rounded-full bg-red-500 flex items-center justify-center shadow-lg shadow-red-500/40">
-                    <Square className="w-6 h-6 text-white" />
-                  </div>
-                </div>
-                <p className="text-4xl font-mono font-bold text-white mb-3 tracking-tighter">
-                  {formatTime(recordingTime)}
-                </p>
-                <div className="flex flex-col items-center justify-center gap-2 mb-8">
-                  <div className="flex items-center gap-2">
-                    <div className="w-2 h-2 rounded-full bg-red-500 animate-ping" />
-                    <p className="text-slate-400 uppercase tracking-widest text-xs font-bold">Live Capture Active</p>
-                  </div>
-                  {isMinTimeSection && !canStop && (
-                    <p className="text-amber-400/80 text-xs font-medium bg-amber-400/10 px-3 py-1 rounded-full">
-                      Please speak for {timeRemaining} more seconds
-                    </p>
-                  )}
-                </div>
+            {isCodingSection ? (
+              <div className="space-y-6">
+                <Card className="glass-card overflow-hidden">
+                  <CardHeader className="bg-white/5 border-b border-white/5">
+                    <CardTitle className="text-sm font-medium text-slate-400 flex items-center">
+                      <Target className="w-4 h-4 mr-2 text-pink-400" />
+                      Code Editor
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="p-0">
+                    <textarea
+                      value={code}
+                      onChange={(e) => setCode(e.target.value)}
+                      placeholder="// Write your code here..."
+                      className="w-full h-[400px] bg-slate-950 border-none rounded-none p-6 font-mono text-sm text-indigo-300 focus:outline-none focus:ring-0 transition-all resize-none"
+                    />
+                  </CardContent>
+                </Card>
                 <Button
-                  variant={canStop ? "destructive" : "secondary"}
                   size="lg"
-                  onClick={stopRecording}
-                  disabled={!canStop}
-                  className="px-12 py-6 rounded-xl font-bold text-lg"
+                  className="w-full py-8 bg-gradient-to-r from-pink-500 to-rose-500 rounded-2xl shadow-xl shadow-pink-500/20 hover:scale-[1.02] active:scale-[0.98] transition-all text-lg font-bold"
+                  onClick={() => submitResponse()}
+                  disabled={processingStep || !code.trim()}
                 >
-                  {canStop ? "Stop & Process" : `Recording... (${timeRemaining}s)`}
+                  {processingStep ? (
+                    <>
+                      <Loader2 className="w-6 h-6 animate-spin mr-3" />
+                      Saving solution...
+                    </>
+                  ) : (
+                    <>
+                      Submit Solution
+                      <ArrowRight className="w-6 h-6 ml-3" />
+                    </>
+                  )}
                 </Button>
+              </div>
+            ) : (
+              <div className="flex flex-col items-center">
+                {!isRecording ? (
+                  <Button
+                    size="lg"
+                    className="w-full max-w-sm bg-gradient-to-r from-pink-500 to-rose-500 py-12 rounded-2xl shadow-xl shadow-pink-500/20 hover:scale-105 transition-all text-xl font-bold"
+                    onClick={startRecording}
+                    disabled={processingStep}
+                  >
+                    {processingStep ? (
+                      <>
+                        <Loader2 className="w-8 h-8 animate-spin mr-4" />
+                        Processing...
+                      </>
+                    ) : (
+                      <>
+                        <Mic className="w-8 h-8 mr-4" />
+                        Start Speaking
+                      </>
+                    )}
+                  </Button>
+                ) : (
+                  <div className="text-center w-full glass-card p-12 rounded-3xl border-red-500/20">
+                    <div className="w-32 h-32 rounded-full bg-red-500/20 flex items-center justify-center mx-auto mb-8 animate-pulse border-4 border-red-500/30">
+                      <div className="w-20 h-20 rounded-full bg-red-500 flex items-center justify-center shadow-2xl shadow-red-500/50">
+                        <Square className="w-8 h-8 text-white" />
+                      </div>
+                    </div>
+                    <p className="text-6xl font-mono font-bold text-white mb-4 tracking-tighter">
+                      {formatTime(recordingTime)}
+                    </p>
+                    <div className="flex flex-col items-center justify-center gap-2 mb-10">
+                      <div className="flex items-center gap-2">
+                        <div className="w-3 h-3 rounded-full bg-red-500 animate-ping" />
+                        <p className="text-slate-400 uppercase tracking-widest text-sm font-bold">Recording in Progress</p>
+                      </div>
+                    </div>
+                    <Button
+                      variant={canStop ? "destructive" : "secondary"}
+                      size="lg"
+                      onClick={stopRecording}
+                      disabled={!canStop}
+                      className="w-full py-8 rounded-2xl font-bold text-xl shadow-2xl"
+                    >
+                      {canStop ? "Finish Speaking" : `Wait (${timeRemaining}s)`}
+                    </Button>
+                  </div>
+                )}
               </div>
             )}
           </div>
-        )}
+        </div>
       </motion.div>
     );
   };
 
-  const renderMiniScore = () => (
-    <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="max-w-md mx-auto text-center">
-      <Card className="glass-card p-8 border-indigo-500/30">
-        <div className="w-20 h-20 rounded-full bg-indigo-500/10 flex items-center justify-center mx-auto mb-6">
-          <TrendingUp className="w-10 h-10 text-indigo-400" />
-        </div>
-        <h2 className="text-2xl font-bold text-white mb-2">Introduction Complete!</h2>
-        <p className="text-slate-400 mb-8">Your initial vocal confidence score is strong. Ready to dive into domain questions?</p>
-        
-        <div className="flex flex-col gap-4 p-6 bg-slate-900/50 rounded-2xl mb-8 border border-slate-800">
-           <div className="flex justify-between items-center text-sm">
-             <span className="text-slate-500">Confidence Score</span>
-             <span className="text-indigo-400 font-bold">{session.section1.score}%</span>
-           </div>
-           <Progress value={session.section1.score} className="h-2 bg-slate-800" />
-        </div>
+  const renderMiniScore = () => {
+    return (
+      <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="max-w-md mx-auto text-center">
+        <Card className="glass-card p-8 border-indigo-500/30">
+          <div className="w-20 h-20 rounded-full bg-indigo-500/10 flex items-center justify-center mx-auto mb-6">
+            <TrendingUp className="w-10 h-10 text-indigo-400" />
+          </div>
+          <h2 className="text-2xl font-bold text-white mb-2">Introduction Complete!</h2>
+          <p className="text-slate-400 mb-8">Your initial vocal confidence score is strong. Ready to dive into domain questions?</p>
+          
+          <div className="flex flex-col gap-4 p-6 bg-slate-900/50 rounded-2xl mb-8 border border-slate-800">
+             <div className="flex justify-between items-center text-sm">
+               <span className="text-slate-500">Confidence Score</span>
+               <span className="text-indigo-400 font-bold">{interviewSession?.section1?.score || 0}%</span>
+             </div>
+             <Progress value={interviewSession?.section1?.score || 0} className="h-2 bg-slate-800" />
+          </div>
 
-        <Button size="lg" className="w-full btn-gradient py-6 rounded-xl font-bold" onClick={() => setStep('session')}>
-          Start Section 2: Domain Questions
-          <ArrowRight className="w-5 h-5 ml-2" />
-        </Button>
-      </Card>
-    </motion.div>
-  );
+          <Button size="lg" className="w-full btn-gradient py-6 rounded-xl font-bold" onClick={() => setStep('session')}>
+            Start Section 2: Domain Questions
+            <ArrowRight className="w-5 h-5 ml-2" />
+          </Button>
+        </Card>
+      </motion.div>
+    );
+  };
 
   const renderFeedback = () => {
-    const report = session.finalReport;
+    const report = interviewSession.finalReport;
     const { technicalScore, problemSolvingScore, overallConfidenceScore } = report; // overallConfidenceScore is used as Vocal score
     const totalScore = Math.round((technicalScore * 0.5) + (problemSolvingScore * 0.3) + (overallConfidenceScore * 0.2));
 
@@ -651,7 +674,7 @@ export default function MockInterviewPage() {
           </CardHeader>
           <CardContent>
             <p className="text-slate-300 leading-relaxed mb-6">
-              {session.conclusion || "Your performance shows balanced communication and technical skills. Focus on reducing filler words to appear more authoritative during complex explanations."}
+              {interviewSession.conclusion || "Your performance shows balanced communication and technical skills. Focus on reducing filler words to appear more authoritative during complex explanations."}
             </p>
             <Separator className="bg-slate-800 mb-6" />
             <h4 className="text-white font-semibold mb-4 flex items-center">

@@ -3,19 +3,25 @@ import connectDB from '@/lib/mongodb';
 import { askGemini, sanitizeJsonResponse } from '@/lib/gemini';
 import User from '@/models/User';
 import Assessment from '@/models/Assessment';
+import { auth } from '@/lib/auth';
+import { headers } from 'next/headers';
 
 export async function POST(req: NextRequest) {
   try {
     await connectDB();
     
-    const { userId } = await req.json();
+    const authSession = await auth.api.getSession({
+      headers: await headers(),
+    });
 
-    if (!userId) {
+    if (!authSession) {
       return NextResponse.json(
-        { error: 'User ID is required' },
-        { status: 400 }
+        { error: 'Unauthorized' },
+        { status: 401 }
       );
     }
+
+    const userId = authSession.user.id;
 
     const user = await User.findById(userId);
     if (!user) {
@@ -25,26 +31,44 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const languages = user.languagesKnown || [];
+    // Normalize languages to array of strings
+    let languages: string[] = [];
+    if (user.languagesKnown) {
+      if (typeof user.languagesKnown === 'string') {
+        languages = (user.languagesKnown as string)
+          .split(',')
+          .map((l: string) => l.trim())
+          .filter(Boolean);
+      } else if (Array.isArray(user.languagesKnown)) {
+        languages = user.languagesKnown;
+      }
+    }
+
     if (languages.length === 0) {
       return NextResponse.json(
-        { error: 'No programming languages specified' },
+        { error: 'No programming languages specified. Please update your profile.' },
         { status: 400 }
       );
     }
 
     const difficulty = user.selfRatedSkillLevel || 'Beginner';
+    const levelGuidance = {
+      'Beginner': 'Focus on core syntax, basic data structures (arrays, strings), simple loops, and fundamental programming logic.',
+      'Intermediate': 'Focus on error handling, functional programming, modularity, API usage, debugging, common design patterns, and asynchronous operations.',
+      'Advanced': 'Focus on systems design, performance tuning, security best practices, scalability, advanced language features (concurrency, decorators, etc.), and complex architectural trade-offs.'
+    }[difficulty as 'Beginner' | 'Intermediate' | 'Advanced'] || 'Focus on foundational concepts.';
+
     const prompt = `You are a technical skill assessor. For a student who knows the following programming languages and technologies: ${languages.join(', ')} and has a self-rated proficiency of ${difficulty}, generate exactly 10 questions to test their proficiency. 
+
+Assessment Level Guidance: ${levelGuidance}
 
 The test must include:
 - 8 Multiple Choice Questions (MCQs)
 - 2 Coding Problems (where they need to write code)
 
-The difficulty of the questions should be ${difficulty} level.
+The difficulty of the questions must be EXPLICITLY ${difficulty} level. Do not provide overly simple questions if the level is Advanced.
 
 For each MCQ provide:
-- "question": text
-- "type": "mcq"
 - "question": text
 - "type": "mcq"
 - "options": exactly 4 strings in a flat array (e.g., ["option1", "option2", "option3", "option4"])

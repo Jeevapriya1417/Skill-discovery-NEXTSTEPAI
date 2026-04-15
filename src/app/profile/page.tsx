@@ -23,33 +23,30 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import Navbar from '@/components/Navbar';
+import { useSession } from '@/lib/auth-client';
 
 export default function ProfilePage() {
   const router = useRouter();
-  const [user, setUser] = useState<any>(null);
+  const session = useSession();
   const [loading, setLoading] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [formData, setFormData] = useState<any>({});
 
   useEffect(() => {
-    const userData = localStorage.getItem('user');
-    if (!userData) {
-      router.push('/login');
-      return;
+    if (session.data?.user) {
+      setFormData(session.data.user);
     }
-    const parsedUser = JSON.parse(userData);
-    setUser(parsedUser);
-    setFormData(parsedUser);
-  }, [router]);
+  }, [session.data]);
 
   const handleSave = async () => {
+    if (!session.data?.user) return;
+    
     setLoading(true);
     try {
       const response = await fetch('/api/user/profile', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          userId: user._id || user.id,
           ...formData
         }),
       });
@@ -57,11 +54,9 @@ export default function ProfilePage() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Failed to update profile');
 
-      const updatedUser = { ...formData, _id: user._id || user.id };
-      localStorage.setItem('user', JSON.stringify(updatedUser));
-      setUser(updatedUser);
       setIsEditing(false);
-      alert('Profile updated successfully!');
+      alert('Profile updated successfully! Some changes may require a page refresh.');
+      // Optionally reload the session
     } catch (error: any) {
       console.error('Failed to save profile:', error);
       alert(`Error saving profile: ${error.message}`);
@@ -70,7 +65,20 @@ export default function ProfilePage() {
     }
   };
 
-  if (!user) return null;
+  if (session.isPending) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center">
+        <Loader2 className="w-10 h-10 text-indigo-500 animate-spin" />
+      </div>
+    );
+  }
+
+  if (!session.data?.user) {
+    router.push('/login');
+    return null;
+  }
+
+  const user = session.data.user as any;
 
   const isStudent = user.userType === 'student';
 
@@ -257,7 +265,8 @@ export default function ProfilePage() {
                           Technical Skills
                         </p>
                         <div className="flex flex-wrap gap-2 mt-2">
-                          {user.languagesKnown?.map((lang: string) => (
+                          {(Array.isArray(user.languagesKnown) ? user.languagesKnown : 
+                            (typeof user.languagesKnown === 'string' ? user.languagesKnown.split(',').map(l => l.trim()).filter(Boolean) : [])).map((lang: string) => (
                             <Badge key={lang} variant="secondary" className="bg-slate-800 text-slate-300 border-slate-700">
                               {lang}
                             </Badge>

@@ -85,4 +85,17 @@ const UserSchema = new Schema<IUser>(
   }
 );
 
-export default mongoose.models.User || mongoose.model<IUser>('User', UserSchema);
+// Pre-save middleware to ensure languagesKnown is always an array of strings
+UserSchema.pre('save', function(next) {
+  if (this.languagesKnown && typeof this.languagesKnown === 'string') {
+    this.languagesKnown = (this.languagesKnown as string)
+      .split(',')
+      .map(lang => lang.trim())
+      .filter(Boolean);
+  } else if (!this.languagesKnown) {
+    this.languagesKnown = [];
+  }
+  next();
+});
+
+export default mongoose.models.User || mongoose.model<IUser>('User', UserSchema, 'user');

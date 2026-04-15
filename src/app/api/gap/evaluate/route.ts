@@ -4,11 +4,24 @@ import { askGemini, sanitizeJsonResponse } from '@/lib/gemini';
 import Assessment from '@/models/Assessment';
 import User from '@/models/User';
 import GapAnalysis from '@/models/GapAnalysis';
+import { auth } from '@/lib/auth';
+import { headers } from 'next/headers';
 
 export async function POST(req: NextRequest) {
   try {
     await connectDB();
     
+    const session = await auth.api.getSession({
+      headers: await headers(),
+    });
+
+    if (!session) {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
     const { assessmentId, userAnswers } = await req.json();
 
     if (!assessmentId || !userAnswers) {
@@ -23,6 +36,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         { error: 'Assessment not found' },
         { status: 404 }
+      );
+    }
+
+    // Security check: Ensure this assessment belongs to the logged-in user
+    if (assessment.userId.toString() !== session.user.id) {
+      return NextResponse.json(
+        { error: 'Unauthorized access to assessment' },
+        { status: 403 }
       );
     }
 

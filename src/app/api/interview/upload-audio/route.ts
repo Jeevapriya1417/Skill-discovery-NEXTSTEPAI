@@ -2,16 +2,29 @@ import { NextRequest, NextResponse } from 'next/server';
 import { writeFile } from 'fs/promises';
 import { join } from 'path';
 import { mkdir } from 'fs/promises';
+import { auth } from '@/lib/auth';
+import { headers } from 'next/headers';
 
 export async function POST(req: NextRequest) {
   try {
+    const authSession = await auth.api.getSession({
+      headers: await headers(),
+    });
+
+    if (!authSession) {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
     const formData = await req.formData();
     const audioFile = formData.get('audio') as File;
-    const userId = formData.get('userId') as string;
+    const userId = authSession.user.id;
 
-    if (!audioFile || !userId) {
+    if (!audioFile) {
       return NextResponse.json(
-        { error: 'Audio file and user ID are required' },
+        { error: 'Audio file is required' },
         { status: 400 }
       );
     }

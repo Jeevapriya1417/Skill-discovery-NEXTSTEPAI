@@ -22,6 +22,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { signUp } from '@/lib/auth-client';
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -53,12 +54,12 @@ export default function RegisterPage() {
     setError('');
 
     try {
-      const payload = {
-        name: formData.name,
+      const { error } = await signUp.email({
         email: formData.email,
         password: formData.password,
+        name: formData.name,
         userType,
-        languagesKnown: formData.languagesKnown.split(',').map(l => l.trim()).filter(Boolean),
+        languagesKnown: formData.languagesKnown,
         ...(userType === 'student' ? {
           collegeName: formData.collegeName,
           yearOfStudy: formData.yearOfStudy,
@@ -66,26 +67,18 @@ export default function RegisterPage() {
         } : {
           currentRole: formData.currentRole,
           yearsOfExperience: parseInt(formData.yearsOfExperience) || 0,
-          technologiesCurrentlyWorkingWith: formData.technologiesCurrentlyWorkingWith.split(',').map(l => l.trim()).filter(Boolean),
+          selfRatedSkillLevel: formData.selfRatedSkillLevel,
+          technologiesCurrentlyWorkingWith: formData.technologiesCurrentlyWorkingWith,
           targetRole: formData.targetRole,
         }),
-      };
-
-      const response = await fetch('/api/auth/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+      } as any, {
+        onSuccess: () => {
+          router.push('/dashboard');
+        },
+        onError: (ctx) => {
+          setError(ctx.error.message || 'Registration failed');
+        }
       });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Registration failed');
-      }
-
-      // Store user data and redirect to dashboard
-      localStorage.setItem('user', JSON.stringify(data.user));
-      router.push('/dashboard');
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -228,20 +221,6 @@ export default function RegisterPage() {
                     className="bg-slate-800/50 border-slate-700 text-white placeholder:text-slate-500"
                   />
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="selfRatedSkillLevel" className="text-slate-300">Self-Rated Skill Level</Label>
-                  <select
-                    id="selfRatedSkillLevel"
-                    name="selfRatedSkillLevel"
-                    value={formData.selfRatedSkillLevel}
-                    onChange={(e) => setFormData({ ...formData, selfRatedSkillLevel: e.target.value as any })}
-                    className="w-full h-10 px-3 rounded-md bg-slate-800/50 border border-slate-700 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                  >
-                    <option value="Beginner">Beginner</option>
-                    <option value="Intermediate">Intermediate</option>
-                    <option value="Advanced">Advanced</option>
-                  </select>
-                </div>
               </>
             ) : (
               <>
@@ -268,6 +247,26 @@ export default function RegisterPage() {
                     className="bg-slate-800/50 border-slate-700 text-white placeholder:text-slate-500"
                   />
                 </div>
+              </>
+            )}
+
+            <div className="space-y-2">
+              <Label htmlFor="selfRatedSkillLevel" className="text-slate-300">Self-Rated Skill Level</Label>
+              <select
+                id="selfRatedSkillLevel"
+                name="selfRatedSkillLevel"
+                value={formData.selfRatedSkillLevel}
+                onChange={(e) => setFormData({ ...formData, selfRatedSkillLevel: e.target.value as any })}
+                className="w-full h-10 px-3 rounded-md bg-slate-800/50 border border-slate-700 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              >
+                <option value="Beginner">Beginner</option>
+                <option value="Intermediate">Intermediate</option>
+                <option value="Advanced">Advanced</option>
+              </select>
+            </div>
+
+            {userType === 'professional' && (
+              <>
                 <div className="space-y-2">
                   <Label htmlFor="technologiesCurrentlyWorkingWith" className="text-slate-300">Technologies Currently Working With</Label>
                   <Input

@@ -1,21 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '@/lib/mongodb';
 import User from '@/models/User';
+import { auth } from '@/lib/auth';
+import { headers } from 'next/headers';
 
 export async function GET(req: NextRequest) {
   try {
     await connectDB();
     
-    const { searchParams } = new URL(req.url);
-    const userId = searchParams.get('userId');
+    const session = await auth.api.getSession({
+      headers: await headers(),
+    });
 
-    if (!userId) {
+    if (!session) {
       return NextResponse.json(
-        { error: 'User ID is required' },
-        { status: 400 }
+        { error: 'Unauthorized' },
+        { status: 401 }
       );
     }
 
+    const userId = session.user.id;
     const user = await User.findById(userId).select('-password');
     
     if (!user) {
@@ -39,14 +43,19 @@ export async function PUT(req: NextRequest) {
   try {
     await connectDB();
     
-    const { userId, updates } = await req.json();
+    const session = await auth.api.getSession({
+      headers: await headers(),
+    });
 
-    if (!userId) {
+    if (!session) {
       return NextResponse.json(
-        { error: 'User ID is required' },
-        { status: 400 }
+        { error: 'Unauthorized' },
+        { status: 401 }
       );
     }
+
+    const { updates } = await req.json();
+    const userId = session.user.id;
 
     const user = await User.findByIdAndUpdate(
       userId,

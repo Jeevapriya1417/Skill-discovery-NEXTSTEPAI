@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Loader2 } from 'lucide-react';
+import { useSession } from '@/lib/auth-client';
 
 interface RoleGuardProps {
   children: React.ReactNode;
@@ -11,52 +12,30 @@ interface RoleGuardProps {
 
 export default function RoleGuard({ children, allowedRole }: RoleGuardProps) {
   const router = useRouter();
+  const session = useSession();
   const [authorized, setAuthorized] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const checkAccess = async () => {
-      try {
-        const storedUser = localStorage.getItem('user');
-        if (!storedUser) {
-          router.push('/login');
-          return;
-        }
+    if (session.isPending) return;
 
-        const user = JSON.parse(storedUser);
-        
-        // 1. Initial check from LocalStorage for speed
-        if (user.userType !== allowedRole) {
-          router.push('/dashboard?error=access-denied');
-          return;
-        }
+    if (!session.data) {
+      router.push('/login');
+      setLoading(false);
+      return;
+    }
 
-        // 2. Secondary check from DB for security/freshness
-        const response = await fetch(`/api/auth/profile?userId=${user._id}`);
-        if (!response.ok) {
-           router.push('/login');
-           return;
-        }
-        
-        const data = await response.json();
-        if (data.user.userType !== allowedRole) {
-          // Sync localStorage if it was wrong
-          localStorage.setItem('user', JSON.stringify(data.user));
-          router.push('/dashboard?error=access-denied');
-          return;
-        }
+    const user = session.data.user as any;
 
-        setAuthorized(true);
-      } catch (error) {
-        console.error('RoleGuard error:', error);
-        router.push('/dashboard');
-      } finally {
-        setLoading(false);
-      }
-    };
+    if (user.userType !== allowedRole) {
+      router.push('/dashboard?error=access-denied');
+      setLoading(false);
+      return;
+    }
 
-    checkAccess();
-  }, [allowedRole, router]);
+    setAuthorized(true);
+    setLoading(false);
+  }, [allowedRole, router, session.data, session.isPending]);
 
   if (loading) {
     return (

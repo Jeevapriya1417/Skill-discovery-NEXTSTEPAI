@@ -8,30 +8,31 @@ export async function POST(req: NextRequest) {
   try {
     await connectDB();
     
-    const session = await auth.api.getSession({
+    const authSession = await auth.api.getSession({
       headers: await headers(),
     });
 
-    if (!session) {
+    if (!authSession) {
       return NextResponse.json(
         { error: 'Unauthorized' },
         { status: 401 }
       );
     }
 
-    const userId = session.user.id;
-    const { domain } = await req.json();
+    const { role } = await req.json();
 
-    if (!domain) {
+    if (!role) {
       return NextResponse.json(
-        { error: 'Domain is required' },
+        { error: 'Role is required' },
         { status: 400 }
       );
     }
 
+    const userId = authSession.user.id;
+
     const user = await User.findByIdAndUpdate(
       userId,
-      { $set: { selectedDomain: domain } },
+      { targetRole: role },
       { new: true }
     );
 
@@ -43,14 +44,11 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json(
-      {
-        message: 'Domain selected successfully',
-        selectedDomain: domain,
-      },
+      { message: 'Target role updated successfully', user },
       { status: 200 }
     );
   } catch (error) {
-    console.error('Domain selection error:', error);
+    console.error('Select role error:', error);
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }

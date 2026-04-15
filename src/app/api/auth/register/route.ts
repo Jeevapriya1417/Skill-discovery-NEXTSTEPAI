@@ -59,7 +59,7 @@ export async function POST(req: NextRequest) {
       userType,
       collegeName: userType === 'student' ? collegeName : undefined,
       yearOfStudy: userType === 'student' ? yearOfStudy : undefined,
-      selfRatedSkillLevel: userType === 'student' ? selfRatedSkillLevel : undefined,
+      selfRatedSkillLevel,
       currentRole: userType === 'professional' ? currentRole : undefined,
       yearsOfExperience: userType === 'professional' ? yearsOfExperience : undefined,
       technologiesCurrentlyWorkingWith: userType === 'professional' ? technologiesCurrentlyWorkingWith : undefined,
